@@ -1,0 +1,4 @@
+github.com/ByteArena/box2d v1.0.2 h1:f7f9KEQWhCs1n516DMLzi5w6u0MeeE78Mes4fWMcj9k=
+github.com/ByteArena/box2d v1.0.2/go.mod h1:LzEuxY9iCz+tskfWCY3o0ywYBRafDDugdSj+/YGI6sE=
+github.com/gen2brain/raylib-go/raylib v0.0.0-20230307122709-61db589fe872 h1:XoXxdD0wxdxIoR71u22ggHnMQ7cee2Xe3La/WlCC7mE=
+github.com/gen2brain/raylib-go/raylib v0.0.0-20230307122709-61db589fe872/go.mod h1:AwtGA3aTtYdezNxEVbfchaLw/z+CuRDh2Mlxy0FbBro=
