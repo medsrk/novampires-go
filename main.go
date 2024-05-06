@@ -3,192 +3,268 @@ package main
 import (
 	"fmt"
 	rl "github.com/gen2brain/raylib-go/raylib"
+	"math"
+	"math/rand"
 )
 
 const (
-	screenWidth  = 1920
-	screenHeight = 1080
+	screenWidth  = 800
+	screenHeight = 450
 )
 
-var (
-	camera    rl.Camera2D
-	gameState GameState
-	dt        float32
-)
-
-type GameState struct {
-	player  Player
-	enemies []*Enemy
-	rects   []rl.Rectangle
+type Character struct {
+	Pos   rl.Vector2
+	Speed float32
 }
 
-func initGameState() GameState {
-	// Initialize your game state here
-	player := NewPlayer()
-	enemies := make([]*Enemy, 0)
-	for i := 0; i < 100; i++ {
-		enemies = append(enemies, NewEnemy())
-	}
-	gs := GameState{
-		player:  player,
-		enemies: enemies,
-	}
-
-	return gs
-}
-
-func gameLoop(gameStateCh chan<- GameState) {
-	// Initialize your game state here
-	gameState = initGameState()
-	for {
-		// Update your game state here
-		var dx, dy float32
-		if rl.IsKeyDown(rl.KeyLeft) || rl.IsKeyDown(rl.KeyA) {
-			dx = -1
-		} else if rl.IsKeyDown(rl.KeyRight) || rl.IsKeyDown(rl.KeyD) {
-			dx = 1
-		}
-
-		if rl.IsKeyDown(rl.KeyUp) || rl.IsKeyDown(rl.KeyW) {
-			dy = -1
-		} else if rl.IsKeyDown(rl.KeyDown) || rl.IsKeyDown(rl.KeyS) {
-			dy = 1
-		}
-
-		// Restrict diagonal speed to be equal to horizontal or vertical speed
-		if dx != 0 && dy != 0 {
-			dx *= 0.7071 // approx. 1/sqrt(2)
-			dy *= 0.7071 // approx. 1/sqrt(2)
-		}
-
-		gameState.player.pos.X += dx * gameState.player.speed.Value() * dt
-		gameState.player.pos.Y += dy * gameState.player.speed.Value() * dt
-
-		if rl.IsKeyDown(rl.KeyEqual) {
-			// add 1% to the speed
-			gameState.player.speed.AddBonus(1)
-		}
-		if rl.IsKeyDown(rl.KeyMinus) {
-			if gameState.player.speed.bonus > 0 {
-				// subtract 1% from the speed
-				gameState.player.speed.AddBonus(-1)
-			}
-		}
-
-		gameState.CheckCollisions()
-		for _, e := range gameState.enemies {
-			e.Update()
-		}
-
-		//gameState.player.pos.X = rl.Clamp(gameState.player.pos.X, 0, screenWidth-gameState.player.size.X)
-		//gameState.player.pos.Y = rl.Clamp(gameState.player.pos.Y, 0, screenHeight-gameState.player.size.Y)
-
-		// Send the updated game state through the channel
-		gameStateCh <- gameState
+func NewCharacter(x, y float32) *Character {
+	return &Character{
+		Pos:   rl.NewVector2(x, y),
+		Speed: 6.0,
 	}
 }
 
-func (s *GameState) CheckCollisions() {
-	// Check player collisions
-	playerRect := s.player.Rect()
-	for _, r := range s.rects {
-		if rl.CheckCollisionRecs(playerRect, r) {
-			fmt.Println("Collision!")
-		}
+func (c *Character) Move() {
+	deltaX := 0.0
+	deltaY := 0.0
+
+	if rl.IsKeyDown(rl.KeyRight) || rl.IsKeyDown(rl.KeyD) {
+		deltaX += 1.0
+	}
+	if rl.IsKeyDown(rl.KeyLeft) || rl.IsKeyDown(rl.KeyA) {
+		deltaX -= 1.0
+	}
+	if rl.IsKeyDown(rl.KeyUp) || rl.IsKeyDown(rl.KeyW) {
+		deltaY -= 1.0
+	}
+	if rl.IsKeyDown(rl.KeyDown) || rl.IsKeyDown(rl.KeyS) {
+		deltaY += 1.0
 	}
 
-	// Check enemy collisions
-	for _, e := range s.enemies {
-		eRect := e.Rect()
-		for _, r := range s.enemies {
-			if rl.CheckCollisionRecs(eRect, r.Rect()) {
-				if e != r {
-					e.colour = rl.Red
-					r.colour = rl.Red
-					// get the direction of the collision and move the enemy away from the collision
-					// by the amount of overlap
-					overlap := rl.GetCollisionRec(eRect, r.Rect())
-					if overlap.Width > overlap.Height {
-						if e.pos.Y < r.Rect().Y {
-							e.pos.Y -= overlap.Height
-						} else {
-							e.pos.Y += overlap.Height
-						}
-					} else {
-						if e.pos.X < r.Rect().X {
-							e.pos.X -= overlap.Width
-						} else {
-							e.pos.X += overlap.Width
-						}
-					}
+	if deltaX != 0 || deltaY != 0 {
+		// Normalize the direction vector
+		length := math.Sqrt(deltaX*deltaX + deltaY*deltaY)
+		deltaX /= length
+		deltaY /= length
+
+		// Apply the normalized direction to the character's position
+		c.Pos.X += float32(deltaX) * c.Speed
+		c.Pos.Y += float32(deltaY) * c.Speed
+	}
+}
+func (c *Character) Draw() {
+	// Draw Character
+	rl.DrawCircleV(c.Pos, 20, rl.Red)
+}
+
+// DrawGrid draws a grid extending beyond the current camera view
+func DrawGrid(camera rl.Camera2D, spacing int) {
+	// Calculate the camera's view bounds plus a buffer zone
+	offsetX := int(camera.Offset.X) + 100 // Extend 100 pixels beyond the screen edge
+	offsetY := int(camera.Offset.Y) + 100 // Extend 100 pixels beyond the screen edge
+
+	// Calculate starting points adjusted to the nearest grid lines
+	startX := int(camera.Target.X) - offsetX
+	startY := int(camera.Target.Y) - offsetY
+	endX := int(camera.Target.X) + offsetX
+	endY := int(camera.Target.Y) + offsetY
+
+	// Adjust to the nearest grid lines
+	startX -= startX % spacing
+	startY -= startY % spacing
+
+	// Draw vertical lines
+	for x := startX; x < endX; x += spacing {
+		rl.DrawLine(int32(x), int32(startY), int32(x), int32(endY), rl.Fade(rl.LightGray, 0.7))
+	}
+	// Draw horizontal lines
+	for y := startY; y < endY; y += spacing {
+		rl.DrawLine(int32(startX), int32(y), int32(endX), int32(y), rl.Fade(rl.LightGray, 0.7))
+	}
+}
+
+func updateCameraCenter(camera *rl.Camera2D, character *Character, deadZoneRadius float32) {
+	// Calculate the distance from the character to the camera target
+	distance := rl.Vector2Distance(character.Pos, camera.Target)
+
+	// If the character is outside the dead zone radius, adjust the camera
+	if distance > deadZoneRadius {
+		// Calculate direction from camera to character
+		direction := rl.Vector2Subtract(character.Pos, camera.Target)
+		direction = rl.Vector2Normalize(direction)
+
+		// Move camera target towards the character
+		camera.Target = rl.Vector2Add(camera.Target, rl.Vector2Scale(direction, distance-deadZoneRadius))
+	}
+}
+
+// Enemy represents an enemy character
+type Enemy struct {
+	Position          rl.Vector2
+	MaxHealth, Health int
+	Speed             float32
+	Update            func(*Enemy, rl.Vector2) // Function to update enemy movement
+	Active            bool
+}
+
+// NewEnemy initializes a new enemy with a specific behavior
+func NewEnemy(posX, posY, speed float32, behavior func(*Enemy, rl.Vector2)) *Enemy {
+	return &Enemy{
+		MaxHealth: 10,
+		Health:    10,
+		Position:  rl.Vector2{X: posX, Y: posY},
+		Speed:     speed,
+		Update:    behavior,
+		Active:    true,
+	}
+}
+
+func (e *Enemy) Draw() {
+	if e.Active {
+		rl.DrawCircleV(e.Position, 20, rl.Blue)
+	}
+}
+
+func (e *Enemy) TakeDamage(damage int) {
+	e.Health -= damage
+	if e.Health <= 0 {
+		e.Health = 0
+		e.Active = false
+	}
+}
+
+func (e *Enemy) IsDead() bool {
+	return e.Health <= 0
+}
+
+// Function type for generating enemy behavior functions
+type BehaviorGenerator func() func(*Enemy, rl.Vector2)
+
+// Generator for zigzag behavior
+func ZigzagBehavior() func(*Enemy, rl.Vector2) {
+	angle := 0.0 // Initialize angle state for the oscillation
+	return func(enemy *Enemy, playerPosition rl.Vector2) {
+		angle += 0.05 // Increment angle to change the sine value over time
+
+		// Calculate the direct movement vector towards the player
+		direction := rl.Vector2Subtract(playerPosition, enemy.Position)
+		direction = rl.Vector2Normalize(direction)
+
+		// Calculate a perpendicular vector to create the zigzag effect
+		perpVector := rl.Vector2{X: -direction.Y, Y: direction.X}
+		// Apply the sine function to oscillate the side-to-side movement
+		perpVector = rl.Vector2Scale(perpVector, float32(math.Sin(angle)*2.0))
+
+		// Combine the direct movement with the oscillating perpendicular movement
+		finalDirection := rl.Vector2Add(direction, perpVector)
+		finalDirection = rl.Vector2Normalize(finalDirection)
+
+		// Move the enemy along the final direction vector scaled by speed
+		enemy.Position = rl.Vector2Add(enemy.Position, rl.Vector2Scale(finalDirection, enemy.Speed))
+	}
+}
+
+// DirectChase behavior: enemy moves directly towards the player
+func DirectChase(enemy *Enemy, playerPosition rl.Vector2) {
+	direction := rl.Vector2Subtract(playerPosition, enemy.Position)
+	if rl.Vector2Length(direction) > 1 { // Avoid division by zero
+		direction = rl.Vector2Normalize(direction)
+		enemy.Position = rl.Vector2Add(enemy.Position, rl.Vector2Scale(direction, enemy.Speed))
+	}
+}
+
+// MaintainDistance behavior: tries to keep a distance from the player
+func MaintainDistance(enemy *Enemy, playerPosition rl.Vector2) {
+	const idealDistance = 100.0 // Ideal distance from the player
+	direction := rl.Vector2Subtract(playerPosition, enemy.Position)
+	distance := rl.Vector2Length(direction)
+
+	if distance > idealDistance {
+		direction = rl.Vector2Normalize(direction)
+		enemy.Position = rl.Vector2Add(enemy.Position, rl.Vector2Scale(direction, enemy.Speed))
+	} else if distance < idealDistance {
+		direction = rl.Vector2Normalize(direction)
+		enemy.Position = rl.Vector2Subtract(enemy.Position, rl.Vector2Scale(direction, enemy.Speed))
+	}
+}
+
+// Check and resolve collisions among all enemies
+func resolveCollisions(enemies []*Enemy) {
+	for i := 0; i < len(enemies); i++ {
+		for j := i + 1; j < len(enemies); j++ {
+			enemy1 := enemies[i]
+			enemy2 := enemies[j]
+			// Calculate distance between enemies
+			distance := rl.Vector2Distance(enemy1.Position, enemy2.Position)
+			// Assume both enemies have a radius of 20 for collision detection
+			if distance < 40 { // 20 radius each, adjust as per your enemy size
+				// Collision detected, push both enemies away from each other
+				overlap := 40 - distance
+				direction := rl.Vector2Subtract(enemy1.Position, enemy2.Position)
+				if rl.Vector2Length(direction) > 0 {
+					direction = rl.Vector2Normalize(direction)
 				}
+				// Adjust positions
+				enemy1.Position = rl.Vector2Add(enemy1.Position, rl.Vector2Scale(direction, overlap/2))
+				enemy2.Position = rl.Vector2Subtract(enemy2.Position, rl.Vector2Scale(direction, overlap/2))
 			}
 		}
 	}
 }
+
+func checkCollisionWithPlayer(player *Character, enemies []*Enemy) {
+	for _, enemy := range enemies {
+		distance := rl.Vector2Distance(player.Pos, enemy.Position)
+		if distance < 40 { // 20 radius each, adjust as per your enemy size
+			enemy.TakeDamage(1)
+			fmt.Println("Player collided with enemy, health:", enemy.Health)
+		}
+	}
+}
+
+var bg_dark = rl.NewColor(34, 32, 52, 255)
 
 func main() {
-	// Initialize Raylib
-	rl.InitWindow(screenWidth, screenHeight, "My Game")
-	// Create a channel to communicate with the game logic goroutine
-	gameStateCh := make(chan GameState)
+	rl.InitWindow(800, 600, "Grid and Camera Control")
+	defer rl.CloseWindow()
 
-	// Start the game logic goroutine
-	go gameLoop(gameStateCh)
+	var enemies []*Enemy
+	character := NewCharacter(400, 300)
+	for i := 0; i < 100; i++ {
+		e1 := NewEnemy(rand.Float32()*800-0, rand.Float32()*450-0, 2.0, DirectChase)
+		e2 := NewEnemy(rand.Float32()*800-0, rand.Float32()*450-0, 1.0, ZigzagBehavior())
+		e3 := NewEnemy(rand.Float32()*800-0, rand.Float32()*450-0, 3.0, MaintainDistance)
 
-	camera = rl.NewCamera2D(rl.NewVector2(screenWidth/2, screenHeight/2), rl.NewVector2(0, 0), 0, 1)
+		enemies = append(enemies, e1, e2, e3)
+	}
+
+	camera := rl.Camera2D{
+		Target:   character.Pos,
+		Offset:   rl.NewVector2(400, 300),
+		Rotation: 0.0,
+		Zoom:     1.0,
+	}
 
 	rl.SetTargetFPS(60)
 	for !rl.WindowShouldClose() {
-		dt = rl.GetFrameTime()
-		// Poll the channel for updates from the game logic goroutine
-		gameState = <-gameStateCh
-		player := gameState.player
-		// target the camera on the player
-		target := rl.NewVector2(player.pos.X+(player.size.X/2), player.pos.Y+(player.size.Y/2))
-		current := camera.Target
-		lerpAmount := float32(0.2)
-		x := current.X + (target.X-current.X)*lerpAmount
-		y := current.Y + (target.Y-current.Y)*lerpAmount
-		camera.Target = rl.NewVector2(x, y)
-
-		// Draw the updated game state on the screen
+		character.Move()
+		updateCameraCenter(&camera, character, 200)
+		resolveCollisions(enemies)
+		checkCollisionWithPlayer(character, enemies)
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.RayWhite)
-		rl.DrawLine(0, screenHeight/2, screenWidth, screenHeight/2, rl.Red)
-		rl.DrawLine(screenWidth/2, 0, screenWidth/2, screenHeight, rl.Red)
+		rl.ClearBackground(bg_dark)
+
 		rl.BeginMode2D(camera)
-		drawHelperGrid()
-
-		//// Draw your game objects here using the updated game state
-		rl.DrawRectangleV(gameState.player.pos, gameState.player.size, gameState.player.colour)
-
-		for _, enemy := range gameState.enemies {
-			rl.DrawRectangleV(enemy.pos, enemy.size, enemy.colour)
+		DrawGrid(camera, 50) // Draw grid lines every 50 pixels
+		character.Draw()
+		for _, enemy := range enemies {
+			if enemy.Active {
+				enemy.Update(enemy, character.Pos)
+				enemy.Draw()
+			}
 		}
-
 		rl.EndMode2D()
-
-		rl.DrawFPS(screenWidth-100, 10)
-		rl.DrawText(fmt.Sprintf("bonusSpeed: %f, speed: %s, pos: %v", player.speed.bonus, player.speed.String(), player.pos), 10, 10, 20, rl.Black)
 
 		rl.EndDrawing()
 	}
-
-	// Close Raylib
-	rl.CloseWindow()
-}
-
-func drawHelperGrid() {
-	// draw a grid to help with positioning
-	for x := 0; x < screenWidth; x += 20 {
-		rl.DrawLine(int32(x), 0, int32(x), screenHeight, rl.LightGray)
-	}
-	for y := 0; y < screenHeight; y += 20 {
-		rl.DrawLine(0, int32(y), screenWidth, int32(y), rl.LightGray)
-	}
-}
-
-func drawLineInDirection(pos rl.Vector2, dir rl.Vector2, length float32) {
-	rl.DrawLineV(pos, rl.Vector2Add(pos, rl.Vector2Scale(dir, length)), rl.Red)
 }

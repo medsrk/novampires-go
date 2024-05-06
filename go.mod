@@ -1,8 +1,15 @@
-module go-splendor
+module novampires-go
 
-go 1.18
+go 1.21
+
+toolchain go1.21.1
 
 require (
-	github.com/ByteArena/box2d v1.0.2 // indirect
-	github.com/gen2brain/raylib-go/raylib v0.0.0-20230307122709-61db589fe872 // indirect
+	github.com/gen2brain/raylib-go/raygui v0.0.0-20240125111008-83d871a38f28
+	github.com/gen2brain/raylib-go/raylib v0.0.0-20231118125650-a1c890e8cbfc
+)
+
+require (
+	github.com/ebitengine/purego v0.5.0 // indirect
+	golang.org/x/sys v0.14.0 // indirect
 )
