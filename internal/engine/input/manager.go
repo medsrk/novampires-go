@@ -212,6 +212,16 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 	return dx, dy
 }
 
+// GetAllBindings returns all input bindings, including gamepad bindings
+func (m *Manager) GetAllBindings() map[InputID]Action {
+	// Return a copy of all bindings
+	allBindings := make(map[InputID]Action)
+	for k, v := range m.bindings {
+		allBindings[k] = v
+	}
+	return allBindings
+}
+
 func (m *Manager) CreateDebugWindow() *DebugWindow {
 	return NewDebugWindow(m)
 }

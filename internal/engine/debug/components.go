@@ -1,4 +1,3 @@
-// internal/engine/debug/imgui_components.go
 package debug
 
 import (

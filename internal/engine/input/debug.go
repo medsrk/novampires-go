@@ -1,6 +1,9 @@
 package input
 
 import (
+	"fmt"
+	imgui "github.com/gabstv/cimgui-go"
+	"github.com/hajimehoshi/ebiten/v2"
 	"novampires-go/internal/engine/debug"
 )
 
@@ -22,20 +25,13 @@ func (w *DebugWindow) Draw() {
 	}
 
 	// Use the FixedWindow component
-	debug.FixedWindow("Input Debug", 300, 400, func() {
+	debug.FixedWindow("Input Debug", 400, 500, func() {
 		// Input states section
 		debug.CollapsingSection("Input States", func() {
 			actions := []Action{
-				MoveUp,
-				MoveDown,
-				MoveLeft,
-				MoveRight,
-				Attack,
-				UseAbility1,
-				UseAbility2,
-				UseAbility3,
-				Pause,
-				ToggleDebug,
+				MoveUp, MoveDown, MoveLeft, MoveRight,
+				Attack, UseAbility1, UseAbility2, UseAbility3,
+				Pause, ToggleDebug,
 			}
 
 			for _, a := range actions {
@@ -52,6 +48,24 @@ func (w *DebugWindow) Draw() {
 		debug.CollapsingSection("Movement Vector", func() {
 			dx, dy := w.manager.GetMovementVector()
 			debug.MovementInfo(dx, dy)
+		})
+
+		// Connected gamepads section
+		debug.CollapsingSection("Connected Devices", func() {
+			// Show connected gamepads
+			gamepads := ebiten.AppendGamepadIDs(nil)
+			if len(gamepads) == 0 {
+				imgui.Text("No gamepads connected")
+			} else {
+				imgui.Text(fmt.Sprintf("%d gamepad(s) connected:", len(gamepads)))
+				for _, id := range gamepads {
+					name := ebiten.GamepadName(id)
+					if name == "" {
+						name = fmt.Sprintf("Gamepad %d", id)
+					}
+					imgui.Text(fmt.Sprintf("- %s", name))
+				}
+			}
 		})
 	})
 }

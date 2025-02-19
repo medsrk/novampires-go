@@ -1,4 +1,3 @@
-// cmd/input-test/main.go
 package main
 
 import (
@@ -11,8 +10,8 @@ import (
 )
 
 const (
-	screenWidth  = 1920
-	screenHeight = 1080
+	screenWidth  = 1600
+	screenHeight = 900
 )
 
 type Game struct {
