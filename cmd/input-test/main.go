@@ -42,7 +42,7 @@ func (g *Game) Update() error {
 	g.debugMgr.Update()
 
 	// Toggle debug if needed
-	if g.input.JustPressed(input.ToggleDebug) {
+	if g.input.JustPressed(input.ActionToggleDebug) {
 		g.debugMgr.Toggle()
 	}
 

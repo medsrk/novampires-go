@@ -29,9 +29,9 @@ func (w *DebugWindow) Draw() {
 		// Input states section
 		debug.CollapsingSection("Input States", func() {
 			actions := []Action{
-				MoveUp, MoveDown, MoveLeft, MoveRight,
-				Attack, UseAbility1, UseAbility2, UseAbility3,
-				Pause, ToggleDebug,
+				ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
+				ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+				ActionPause, ActionToggleDebug,
 			}
 
 			for _, a := range actions {

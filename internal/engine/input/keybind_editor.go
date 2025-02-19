@@ -39,7 +39,7 @@ func NewKeyBindingEditorWindow(manager *Manager) *KeyBindingEditorWindow {
 		manager:         manager,
 		open:            true,
 		listening:       false,
-		selectedAction:  MoveUp,
+		selectedAction:  ActionMoveUp,
 		rebindMode:      false,
 		oldKey:          ebiten.Key(0),
 		keyBindings:     nil,
@@ -176,9 +176,9 @@ func (w *KeyBindingEditorWindow) drawKeyboardBindings() {
 		// Action selector
 		imgui.Text("Select action:")
 		actions := []Action{
-			MoveUp, MoveDown, MoveLeft, MoveRight,
-			Attack, UseAbility1, UseAbility2, UseAbility3,
-			Pause, ToggleDebug,
+			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
+			ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+			ActionPause, ActionToggleDebug,
 		}
 
 		for i, action := range actions {
@@ -278,9 +278,9 @@ func (w *KeyBindingEditorWindow) drawGamepadBindings() {
 		// Action selector
 		imgui.Text("Select action:")
 		actions := []Action{
-			MoveUp, MoveDown, MoveLeft, MoveRight,
-			Attack, UseAbility1, UseAbility2, UseAbility3,
-			Pause, ToggleDebug,
+			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
+			ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+			ActionPause, ActionToggleDebug,
 		}
 
 		for i, action := range actions {

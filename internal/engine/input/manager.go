@@ -48,35 +48,35 @@ func New() *Manager {
 
 	// Set default keyboard bindings
 	defaultKeys := map[ebiten.Key]Action{
-		ebiten.KeyW:      MoveUp,
-		ebiten.KeyS:      MoveDown,
-		ebiten.KeyA:      MoveLeft,
-		ebiten.KeyD:      MoveRight,
-		ebiten.KeySpace:  Attack,
-		ebiten.Key1:      UseAbility1,
-		ebiten.Key2:      UseAbility2,
-		ebiten.Key3:      UseAbility3,
-		ebiten.KeyEscape: Pause,
-		ebiten.KeyUp:     MoveUp,
-		ebiten.KeyDown:   MoveDown,
-		ebiten.KeyLeft:   MoveLeft,
-		ebiten.KeyRight:  MoveRight,
-		ebiten.KeyF1:     ToggleDebug,
+		ebiten.KeyW:      ActionMoveUp,
+		ebiten.KeyS:      ActionMoveDown,
+		ebiten.KeyA:      ActionMoveLeft,
+		ebiten.KeyD:      ActionMoveRight,
+		ebiten.KeySpace:  ActionAttack,
+		ebiten.Key1:      ActionUseAbility1,
+		ebiten.Key2:      ActionUseAbility2,
+		ebiten.Key3:      ActionUseAbility3,
+		ebiten.KeyEscape: ActionPause,
+		ebiten.KeyUp:     ActionMoveUp,
+		ebiten.KeyDown:   ActionMoveDown,
+		ebiten.KeyLeft:   ActionMoveLeft,
+		ebiten.KeyRight:  ActionMoveRight,
+		ebiten.KeyF1:     ActionToggleDebug,
 	}
 
 	defaultGamepadButtons := map[ebiten.StandardGamepadButton]Action{
-		ebiten.StandardGamepadButtonLeftTop:    MoveUp,    // D-pad Up
-		ebiten.StandardGamepadButtonLeftRight:  MoveRight, // D-pad Right
-		ebiten.StandardGamepadButtonLeftBottom: MoveDown,  // D-pad Down
-		ebiten.StandardGamepadButtonLeftLeft:   MoveLeft,  // D-pad Left
+		ebiten.StandardGamepadButtonLeftTop:    ActionMoveUp,    // D-pad Up
+		ebiten.StandardGamepadButtonLeftRight:  ActionMoveRight, // D-pad Right
+		ebiten.StandardGamepadButtonLeftBottom: ActionMoveDown,  // D-pad Down
+		ebiten.StandardGamepadButtonLeftLeft:   ActionMoveLeft,  // D-pad Left
 
-		ebiten.StandardGamepadButtonRightBottom: Attack,      // A/Cross
-		ebiten.StandardGamepadButtonRightRight:  UseAbility1, // B/Circle
-		ebiten.StandardGamepadButtonRightLeft:   UseAbility2, // X/Square
-		ebiten.StandardGamepadButtonRightTop:    UseAbility3, // Y/Triangle
+		ebiten.StandardGamepadButtonRightBottom: ActionAttack,      // A/Cross
+		ebiten.StandardGamepadButtonRightRight:  ActionUseAbility1, // B/Circle
+		ebiten.StandardGamepadButtonRightLeft:   ActionUseAbility2, // X/Square
+		ebiten.StandardGamepadButtonRightTop:    ActionUseAbility3, // Y/Triangle
 
-		ebiten.StandardGamepadButtonCenterRight: Pause,       // Start
-		ebiten.StandardGamepadButtonCenterLeft:  ToggleDebug, // Select
+		ebiten.StandardGamepadButtonCenterRight: ActionPause,       // Start
+		ebiten.StandardGamepadButtonCenterLeft:  ActionToggleDebug, // Select
 	}
 
 	for k, v := range defaultKeys {
@@ -168,16 +168,16 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 	dx, dy := 0.0, 0.0
 
 	// Digital input (keyboard/d-pad)
-	if m.IsPressed(MoveUp) {
+	if m.IsPressed(ActionMoveUp) {
 		dy--
 	}
-	if m.IsPressed(MoveDown) {
+	if m.IsPressed(ActionMoveDown) {
 		dy++
 	}
-	if m.IsPressed(MoveLeft) {
+	if m.IsPressed(ActionMoveLeft) {
 		dx--
 	}
-	if m.IsPressed(MoveRight) {
+	if m.IsPressed(ActionMoveRight) {
 		dx++
 	}
 
@@ -212,6 +212,10 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 	return dx, dy
 }
 
+func (m *Manager) GetAimVector() (float64, float64) {
+	return 0, 0
+}
+
 // GetAllBindings returns all input bindings, including gamepad bindings
 func (m *Manager) GetAllBindings() map[InputID]Action {
 	// Return a copy of all bindings
@@ -220,6 +224,14 @@ func (m *Manager) GetAllBindings() map[InputID]Action {
 		allBindings[k] = v
 	}
 	return allBindings
+}
+
+func (m *Manager) GetActionState(action Action) ActionState {
+	return ActionState{
+		Active:       m.IsPressed(action),
+		JustPressed:  m.JustPressed(action),
+		JustReleased: m.JustReleased(action),
+	}
 }
 
 func (m *Manager) CreateDebugWindow() *DebugWindow {
