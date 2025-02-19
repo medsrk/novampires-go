@@ -52,7 +52,7 @@ func New() *Manager {
 		ebiten.KeyS:      ActionMoveDown,
 		ebiten.KeyA:      ActionMoveLeft,
 		ebiten.KeyD:      ActionMoveRight,
-		ebiten.KeySpace:  ActionAttack,
+		ebiten.KeySpace:  ActionAutoAttack,
 		ebiten.Key1:      ActionUseAbility1,
 		ebiten.Key2:      ActionUseAbility2,
 		ebiten.Key3:      ActionUseAbility3,
@@ -70,7 +70,7 @@ func New() *Manager {
 		ebiten.StandardGamepadButtonLeftBottom: ActionMoveDown,  // D-pad Down
 		ebiten.StandardGamepadButtonLeftLeft:   ActionMoveLeft,  // D-pad Left
 
-		ebiten.StandardGamepadButtonRightBottom: ActionAttack,      // A/Cross
+		ebiten.StandardGamepadButtonRightBottom: ActionAutoAttack,  // A/Cross
 		ebiten.StandardGamepadButtonRightRight:  ActionUseAbility1, // B/Circle
 		ebiten.StandardGamepadButtonRightLeft:   ActionUseAbility2, // X/Square
 		ebiten.StandardGamepadButtonRightTop:    ActionUseAbility3, // Y/Triangle
@@ -213,7 +213,56 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 }
 
 func (m *Manager) GetAimVector() (float64, float64) {
-	return 0, 0
+	// First try to get aim from right stick if a gamepad is connected
+	ids := ebiten.AppendGamepadIDs(nil)
+	if len(ids) > 0 {
+		// Get right stick values
+		dx := ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisRightStickHorizontal)
+		dy := ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisRightStickVertical)
+
+		// Apply deadzone
+		deadzone := 0.2
+		if math.Abs(dx) >= deadzone || math.Abs(dy) >= deadzone {
+			// Return gamepad input if it's above deadzone
+			// Normalize for consistent magnitude
+			length := math.Sqrt(dx*dx + dy*dy)
+			if length > 1.0 {
+				dx /= length
+				dy /= length
+			}
+			return dx, dy
+		}
+	}
+
+	// If no gamepad or gamepad input below deadzone, try mouse
+	mx, my := ebiten.CursorPosition()
+	cx, cy := ebiten.WindowSize()
+	cx /= 2
+	cy /= 2
+
+	// Check if mouse is being used (moved or button pressed)
+	mouseIsActive := mx != 0 || my != 0 || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	if mouseIsActive {
+		// Calculate vector from center to mouse
+		dx := float64(mx - cx)
+		dy := float64(my - cy)
+
+		// Only normalize if the vector has length (avoid division by zero)
+		length := math.Sqrt(dx*dx + dy*dy)
+		if length > 0 {
+			dx /= length
+			dy /= length
+			return dx, dy
+		}
+	}
+
+	// If we reach here, neither gamepad nor mouse provided a valid aim vector
+	// Return the last valid direction (could be implemented with a cache)
+	// Or return a default direction based on player's facing
+
+	// For now, return forward direction (0,-1) as fallback
+	return 0, -1
 }
 
 // GetAllBindings returns all input bindings, including gamepad bindings

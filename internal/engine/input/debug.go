@@ -30,7 +30,7 @@ func (w *DebugWindow) Draw() {
 		debug.CollapsingSection("Input States", func() {
 			actions := []Action{
 				ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-				ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+				ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
 				ActionPause, ActionToggleDebug,
 			}
 
@@ -48,6 +48,11 @@ func (w *DebugWindow) Draw() {
 		debug.CollapsingSection("Movement Vector", func() {
 			dx, dy := w.manager.GetMovementVector()
 			debug.MovementInfo(dx, dy)
+		})
+		// Aim vector section
+		debug.CollapsingSection("Aim Vector", func() {
+			dx, dy := w.manager.GetAimVector()
+			debug.AimInfo(dx, dy)
 		})
 
 		// Connected gamepads section

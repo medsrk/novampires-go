@@ -121,6 +121,15 @@ func MovementInfo(dx, dy float64) {
 	LabeledValue("Direction:", direction, nil)
 }
 
+// AimInfo displays aim vector information
+func AimInfo(dx, dy float64) {
+	LabeledValue("Vector:", fmt.Sprintf("(%.2f, %.2f)", dx, dy), nil)
+	imgui.Separator()
+
+	direction := GetDirectionText(dx, dy)
+	LabeledValue("Direction:", direction, nil)
+}
+
 // KeyBindingEditor displays and allows editing of a key binding
 func KeyBindingEditor(label string, currentKey ebiten.Key, onRebind func(ebiten.Key)) {
 	imgui.PushIDStrStr(label, currentKey.String())

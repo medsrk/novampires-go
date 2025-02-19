@@ -177,7 +177,7 @@ func (w *KeyBindingEditorWindow) drawKeyboardBindings() {
 		imgui.Text("Select action:")
 		actions := []Action{
 			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-			ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+			ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
 			ActionPause, ActionToggleDebug,
 		}
 
@@ -279,7 +279,7 @@ func (w *KeyBindingEditorWindow) drawGamepadBindings() {
 		imgui.Text("Select action:")
 		actions := []Action{
 			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-			ActionAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
+			ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
 			ActionPause, ActionToggleDebug,
 		}
 

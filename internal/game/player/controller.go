@@ -14,6 +14,8 @@ type Controller struct {
 	rotation float64
 
 	config Config
+
+	autoAim bool
 }
 
 type Config struct {
@@ -43,12 +45,18 @@ func NewController(inputManager input.InputProvider, initialPos common.Vector2, 
 		vel:          common.Vector2{},
 		rotation:     0,
 		config:       config,
+		autoAim:      true,
 	}
 }
 
 func (c *Controller) Update(targets []common.TargetInfo) {
 	c.updateMovement()
 	c.updateAiming(targets)
+
+	// Update auto-aim state
+	if c.inputManager.JustPressed(input.ActionAutoAttack) {
+		c.autoAim = !c.autoAim
+	}
 }
 
 func (c *Controller) updateMovement() {
@@ -80,29 +88,38 @@ func (c *Controller) updateAiming(targets []common.TargetInfo) {
 	if len(targets) == 0 {
 		return
 	}
-
-	var closestTarget *common.TargetInfo
-	closestDistSq := c.config.Range * c.config.Range
-
-	for i, target := range targets {
-		delta := target.Pos.Sub(c.pos)
-		distSq := delta.MagnitudeSquared()
-
-		if distSq < closestDistSq {
-			closestDistSq = distSq
-			closestTarget = &targets[i]
+	if !c.autoAim {
+		dx, dy := c.inputManager.GetAimVector()
+		aimVec := common.Vector2{X: dx, Y: dy}
+		if aimVec.Magnitude() > 0 {
+			c.rotation = math.Atan2(aimVec.Y, aimVec.X)
 		}
-	}
 
-	// Aim at closest target with aim assist
-	if closestTarget != nil {
-		aimDirection := closestTarget.Pos.Sub(c.pos)
-		targetRotation := math.Atan2(aimDirection.Y, aimDirection.X)
+	} else {
 
-		// Gradual rotation towards target (aim assist)
-		angleDiff := common.NormalizeAngle(targetRotation - c.rotation)
-		rotationStep := angleDiff * c.config.RotationSpeed
-		c.rotation = common.NormalizeAngle(c.rotation + rotationStep)
+		var closestTarget *common.TargetInfo
+		closestDistSq := c.config.Range * c.config.Range
+
+		for i, target := range targets {
+			delta := target.Pos.Sub(c.pos)
+			distSq := delta.MagnitudeSquared()
+
+			if distSq < closestDistSq {
+				closestDistSq = distSq
+				closestTarget = &targets[i]
+			}
+		}
+
+		// Aim at closest target with aim assist
+		if closestTarget != nil {
+			aimDirection := closestTarget.Pos.Sub(c.pos)
+			targetRotation := math.Atan2(aimDirection.Y, aimDirection.X)
+
+			// Gradual rotation towards target (aim assist)
+			angleDiff := common.NormalizeAngle(targetRotation - c.rotation)
+			rotationStep := angleDiff * c.config.RotationSpeed
+			c.rotation = common.NormalizeAngle(c.rotation + rotationStep)
+		}
 	}
 }
 
@@ -114,6 +131,7 @@ func (c *Controller) GetRotation() float64 {
 	return c.rotation
 }
 
+// GetAimDirection returns the direction the player is aiming
 func (c *Controller) GetAimDirection() common.Vector2 {
 	return common.Vector2{X: math.Cos(c.rotation), Y: math.Sin(c.rotation)}
 }

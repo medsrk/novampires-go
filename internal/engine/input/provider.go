@@ -7,7 +7,7 @@ const (
 	ActionMoveDown
 	ActionMoveLeft
 	ActionMoveRight
-	ActionAttack
+	ActionAutoAttack
 	ActionUseAbility1
 	ActionUseAbility2
 	ActionUseAbility3
@@ -34,7 +34,7 @@ type ActionState struct {
 }
 
 func (a *Action) String() string {
-	return [...]string{"ActionMoveUp", "ActionMoveDown", "ActionMoveLeft", "ActionMoveRight", "ActionAttack", "ActionUseAbility1", "ActionUseAbility2", "ActionUseAbility3", "ActionPause", "Toggle Debug"}[*a]
+	return [...]string{"ActionMoveUp", "ActionMoveDown", "ActionMoveLeft", "ActionMoveRight", "ActionAutoAttack", "ActionUseAbility1", "ActionUseAbility2", "ActionUseAbility3", "ActionPause", "Toggle Debug"}[*a]
 }
 
 // InputProvider defines the interface for accessing input state
