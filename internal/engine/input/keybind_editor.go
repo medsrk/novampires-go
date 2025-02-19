@@ -108,7 +108,7 @@ func (w *KeyBindingEditorWindow) Draw() {
 	}
 
 	w.refreshBindings()
-	imgui.SetNextWindowSize(imgui.Vec2{X: 450, Y: 500})
+	//imgui.SetNextWindowSize(imgui.Vec2{X: 450, Y: 500})
 
 	if imgui.Begin("Input Bindings") {
 		// Tab bar for keyboard/gamepad
