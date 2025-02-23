@@ -1,9 +1,9 @@
-// internal/game/manager.go
 package game
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"novampires-go/internal/common"
+	"novampires-go/internal/engine/camera"
 	"novampires-go/internal/engine/debug"
 	"novampires-go/internal/engine/input"
 	"novampires-go/internal/game/config"
@@ -21,83 +21,102 @@ const (
 	StateGameOver
 )
 
+// Scene represents a game scene (menu, level, etc)
+type Scene interface {
+	Update() error
+	Draw(screen *ebiten.Image)
+}
+
 // Dependencies contains all external dependencies
 type Dependencies struct {
 	InputManager *input.Manager
 	DebugManager *debug.Manager
-	// Will expand with audio, assets, etc. as needed
+	Camera       *camera.Camera
+	Renderer     *rendering.Renderer
+	Config       config.Config
+	ScreenWidth  int
+	ScreenHeight int
 }
 
 // Game represents the main game state and logic
 type Game struct {
-	// Core dependencies
-	dependencies Dependencies
-	config       config.Config
+	deps Dependencies
 
 	// Game state
-	state GameState
+	state       GameState
+	activeScene Scene
 
 	// Core systems
-	renderer         *rendering.Renderer
 	playerController *player.Controller
 
-	// Debugging
+	// State flags
 	showDebug bool
 }
 
 // NewGame creates a new game instance
-func NewGame(deps Dependencies, cfg config.Config) *Game {
-	// Create renderer
-	renderCfg := rendering.DefaultRenderConfig()
-	renderer := rendering.NewRenderer(renderCfg)
+func NewGame(deps Dependencies) *Game {
+	// First create the game instance with initial state
+	g := &Game{
+		deps:      deps,
+		state:     StatePlaying, // Start in playing state for test scene
+		showDebug: deps.Config.Display.ShowDebugInfo,
+	}
 
-	// Create player controller at center of screen
+	// Create player at center of screen
 	startPos := common.Vector2{
-		X: float64(cfg.Display.Width) / 2,
-		Y: float64(cfg.Display.Height) / 2,
+		X: float64(deps.ScreenWidth) / 2,
+		Y: float64(deps.ScreenHeight) / 2,
 	}
 	controllerCfg := player.DefaultConfig()
-	// Apply auto-aim strength from gameplay settings
-	//controllerCfg.AimAssistStrength = cfg.Gameplay.AutoAimStrength
+	g.playerController = player.NewController(deps.InputManager, startPos, controllerCfg)
 
-	// Initialize player controller
-	playerController := player.NewController(
-		deps.InputManager,
-		startPos,
-		controllerCfg,
-	)
+	// Set up all debug windows
+	deps.DebugManager.AddWindow(deps.InputManager.CreateDebugWindow())  // Input debug window
+	keyBindEditor := input.NewKeyBindingEditorWindow(deps.InputManager) // Key binding editor
+	deps.DebugManager.AddWindow(keyBindEditor)
+	deps.DebugManager.AddWindow(deps.Camera.CreateDebugWindow()) // Camera debug window
 
-	return &Game{
-		dependencies:     deps,
-		config:           cfg,
-		state:            StateMainMenu,
-		renderer:         renderer,
-		playerController: playerController,
-		showDebug:        cfg.Display.ShowDebugInfo,
-	}
+	// Add player debug window last (after player controller is created)
+	pdw := player.NewDebugWindow(deps.DebugManager, g.playerController)
+	deps.DebugManager.AddWindow(pdw)
+
+	// Tell camera to follow the player
+	deps.Camera.SetTarget(g.playerController.GetPositionPtr())
+
+	return g
+}
+
+// SetScene changes the active scene
+func (g *Game) SetScene(scene Scene) {
+	g.activeScene = scene
 }
 
 // Update handles game logic updates
 func (g *Game) Update() error {
+	// Update input manager
+	g.deps.InputManager.Update()
 	// Update debug manager first
-	g.dependencies.DebugManager.Update()
+	g.deps.DebugManager.Update()
 
 	// Check debug toggle
-	if g.dependencies.InputManager.JustPressed(input.ActionToggleDebug) {
+	if g.deps.InputManager.JustPressed(common.ActionToggleDebug) {
 		g.showDebug = !g.showDebug
-		g.dependencies.DebugManager.Toggle()
+		g.deps.DebugManager.Toggle()
 	}
+
+	// Update camera
+	g.deps.Camera.Update()
 
 	// Handle state-specific updates
 	switch g.state {
 	case StateMainMenu:
-		g.updateMainMenu()
+		return g.updateMainMenu()
 	case StatePlaying:
-		g.updatePlaying()
+		return g.updatePlaying()
 	case StatePaused:
-		g.updatePaused()
+		return g.updatePaused()
 	case StateGameOver:
-		g.updateGameOver()
+		return g.updateGameOver()
 	}
 
 	return nil
@@ -105,80 +124,65 @@ func (g *Game) Update() error {
 
 // Draw renders the game
 func (g *Game) Draw(screen *ebiten.Image) {
-	switch g.state {
-	case StateMainMenu:
-		g.drawMainMenu(screen)
-	case StatePlaying:
-		g.drawPlaying(screen)
-	case StatePaused:
-		g.drawPaused(screen)
-	case StateGameOver:
-		g.drawGameOver(screen)
+	if g.activeScene != nil {
+		g.activeScene.Draw(screen)
 	}
 
 	// Draw debug UI if enabled
 	if g.showDebug {
-		g.dependencies.DebugManager.Draw(screen)
+		g.deps.DebugManager.Draw(screen)
 	}
 }
 
 // Layout implements ebiten.Game
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	// Update ImGui display size if window is resized
-	g.dependencies.DebugManager.SetDisplaySize(
-		float32(outsideWidth),
-		float32(outsideHeight),
-	)
-	return g.config.Display.Width, g.config.Display.Height
+	g.deps.DebugManager.SetDisplaySize(float32(outsideWidth), float32(outsideHeight))
+	return g.deps.ScreenWidth, g.deps.ScreenHeight
 }
 
 // State-specific update methods
-func (g *Game) updateMainMenu() {
+func (g *Game) updateMainMenu() error {
 	// Check for game start
-	if g.dependencies.InputManager.JustPressed(input.ActionInteract) {
+	if g.deps.InputManager.JustPressed(common.ActionInteract) {
 		g.state = StatePlaying
 	}
+	return nil
 }
 
-func (g *Game) updatePlaying() {
-	// Update player controller with empty target list for now
-	// Will be populated with enemies later
-	g.playerController.Update([]common.TargetInfo{})
-
+func (g *Game) updatePlaying() error {
+	if g.activeScene != nil {
+		return g.activeScene.Update()
+	}
+	
 	// Check for pause
-	if g.dependencies.InputManager.JustPressed(input.ActionMenu) {
+	if g.deps.InputManager.JustPressed(common.ActionMenu) {
 		g.state = StatePaused
 	}
+	return nil
 }
 
-func (g *Game) updatePaused() {
+func (g *Game) updatePaused() error {
 	// Check for unpause
-	if g.dependencies.InputManager.JustPressed(input.ActionMenu) {
+	if g.deps.InputManager.JustPressed(common.ActionMenu) {
 		g.state = StatePlaying
 	}
+	return nil
 }
 
-func (g *Game) updateGameOver() {
+func (g *Game) updateGameOver() error {
 	// Check for return to main menu
-	if g.dependencies.InputManager.JustPressed(input.ActionInteract) {
+	if g.deps.InputManager.JustPressed(common.ActionInteract) {
 		g.state = StateMainMenu
 	}
+	return nil
 }
 
-// State-specific drawing methods
-func (g *Game) drawMainMenu(screen *ebiten.Image) {
-	// Draw main menu
+// Helper methods to access core systems
+func (g *Game) GetPlayerController() *player.Controller {
+	return g.playerController
 }
 
-func (g *Game) drawPlaying(screen *ebiten.Image) {
-	// Draw game
-	g.renderer.Draw(screen)
-}
-
-func (g *Game) drawPaused(screen *ebiten.Image) {
-	// Draw pause menu
-}
-
-func (g *Game) drawGameOver(screen *ebiten.Image) {
-	// Draw game over screen
+func (g *Game) GetDependencies() *Dependencies {
+	return &g.deps
 }

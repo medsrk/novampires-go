@@ -3,11 +3,10 @@ package player
 import (
 	"math"
 	"novampires-go/internal/common"
-	"novampires-go/internal/engine/input"
 )
 
 type Controller struct {
-	inputManager input.InputProvider
+	inputManager common.InputProvider
 
 	pos      common.Vector2
 	vel      common.Vector2
@@ -15,7 +14,12 @@ type Controller struct {
 
 	config Config
 
-	autoAim bool
+	autoAim      bool
+	usingGamepad bool
+	lastMouseX   int
+	lastMouseY   int
+	lastAimDx    float64
+	lastAimDy    float64
 }
 
 type Config struct {
@@ -29,16 +33,16 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		MaxSpeed:      3.0,
-		Acceleration:  0.2,
-		Deceleration:  0.1,
+		MaxSpeed:      5.0,
+		Acceleration:  1.0,
+		Deceleration:  0.5,
 		RotationSpeed: 0.15,
 
 		Range: 400.0,
 	}
 }
 
-func NewController(inputManager input.InputProvider, initialPos common.Vector2, config Config) *Controller {
+func NewController(inputManager common.InputProvider, initialPos common.Vector2, config Config) *Controller {
 	return &Controller{
 		inputManager: inputManager,
 		pos:          initialPos,
@@ -54,7 +58,7 @@ func (c *Controller) Update(targets []common.TargetInfo) {
 	c.updateAiming(targets)
 
 	// Update auto-aim state
-	if c.inputManager.JustPressed(input.ActionAutoAttack) {
+	if c.inputManager.JustPressed(common.ActionAutoAttack) {
 		c.autoAim = !c.autoAim
 	}
 }
@@ -62,12 +66,18 @@ func (c *Controller) Update(targets []common.TargetInfo) {
 func (c *Controller) updateMovement() {
 	dx, dy := c.inputManager.GetMovementVector()
 	inputVec := common.Vector2{X: dx, Y: dy}
+	inputMagnitude := inputVec.Magnitude()
 
-	if inputVec.Magnitude() > 0 {
+	if inputMagnitude > 0 {
+		// Scale max speed by input magnitude
+		targetSpeed := c.config.MaxSpeed * inputMagnitude
+
 		c.vel = c.vel.Add(inputVec.Scale(c.config.Acceleration))
+		currentSpeed := c.vel.Magnitude()
 
-		if c.vel.Magnitude() > c.config.MaxSpeed {
-			c.vel = c.vel.Normalized().Scale(c.config.MaxSpeed)
+		// Cap at the scaled max speed
+		if currentSpeed > targetSpeed {
+			c.vel = c.vel.Normalized().Scale(targetSpeed)
 		}
 	} else {
 		currentSpeed := c.vel.Magnitude()
@@ -84,19 +94,36 @@ func (c *Controller) updateMovement() {
 	c.pos = c.pos.Add(c.vel)
 }
 
-func (c *Controller) updateAiming(targets []common.TargetInfo) {
-	if len(targets) == 0 {
-		return
+func (c *Controller) GetAimVector() (float64, float64) {
+	// Get current mouse position in WORLD coordinates
+	mx, my := c.inputManager.GetMousePositionWorld()
+
+	// Try gamepad first
+	if dx, dy, ok := c.inputManager.GetGamepadAim(); ok {
+		c.usingGamepad = true
+		c.lastAimDx, c.lastAimDy = dx, dy // Store gamepad aim vector
+		return dx, dy
 	}
-	if !c.autoAim {
-		dx, dy := c.inputManager.GetAimVector()
-		aimVec := common.Vector2{X: dx, Y: dy}
-		if aimVec.Magnitude() > 0 {
-			c.rotation = math.Atan2(aimVec.Y, aimVec.X)
-		}
 
-	} else {
+	// Check for mouse movement
+	if mx != c.lastMouseX || my != c.lastMouseY {
+		c.usingGamepad = false
+		c.lastMouseX, c.lastMouseY = mx, my
 
+		// Calculate the direction vector from player to mouse
+		aimDirection := common.Vector2{X: float64(mx), Y: float64(my)}.Sub(c.pos).Normalized()
+
+		c.lastAimDx, c.lastAimDy = aimDirection.X, aimDirection.Y // Store NORMALIZED direction
+		return c.lastAimDx, c.lastAimDy
+	}
+
+	// No new input, return last used aim (mouse or gamepad vector)
+	return c.lastAimDx, c.lastAimDy
+}
+
+func (c *Controller) updateAiming(targets []common.TargetInfo) {
+	if c.autoAim && len(targets) > 0 {
+		// Auto-aim logic stays the same
 		var closestTarget *common.TargetInfo
 		closestDistSq := c.config.Range * c.config.Range
 
@@ -110,15 +137,19 @@ func (c *Controller) updateAiming(targets []common.TargetInfo) {
 			}
 		}
 
-		// Aim at closest target with aim assist
 		if closestTarget != nil {
 			aimDirection := closestTarget.Pos.Sub(c.pos)
 			targetRotation := math.Atan2(aimDirection.Y, aimDirection.X)
-
-			// Gradual rotation towards target (aim assist)
 			angleDiff := common.NormalizeAngle(targetRotation - c.rotation)
 			rotationStep := angleDiff * c.config.RotationSpeed
 			c.rotation = common.NormalizeAngle(c.rotation + rotationStep)
+		}
+	} else {
+		// Manual aim using input manager's aim vector
+		dx, dy := c.GetAimVector()
+
+		if dx != 0 || dy != 0 {
+			c.rotation = math.Atan2(dy, dx)
 		}
 	}
 }
@@ -127,13 +158,17 @@ func (c *Controller) GetPosition() common.Vector2 {
 	return c.pos
 }
 
+func (c *Controller) GetPositionPtr() *common.Vector2 {
+	return &c.pos
+}
+
 func (c *Controller) GetRotation() float64 {
 	return c.rotation
 }
 
 // GetAimDirection returns the direction the player is aiming
 func (c *Controller) GetAimDirection() common.Vector2 {
-	return common.Vector2{X: math.Cos(c.rotation), Y: math.Sin(c.rotation)}
+	return common.Vector2{X: math.Cos(c.rotation), Y: math.Sin(c.rotation)}.Normalized()
 }
 
 func (c *Controller) SetPosition(pos common.Vector2) {

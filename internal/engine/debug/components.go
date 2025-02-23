@@ -4,6 +4,7 @@ import (
 	"fmt"
 	imgui "github.com/gabstv/cimgui-go"
 	"github.com/hajimehoshi/ebiten/v2"
+	"novampires-go/internal/common"
 	"strings"
 )
 
@@ -121,13 +122,17 @@ func MovementInfo(dx, dy float64) {
 	LabeledValue("Direction:", direction, nil)
 }
 
-// AimInfo displays aim vector information
-func AimInfo(dx, dy float64) {
-	LabeledValue("Vector:", fmt.Sprintf("(%.2f, %.2f)", dx, dy), nil)
-	imgui.Separator()
+// MousePosition displays mouse position information
+func MousePosition(screenX, screenY, worldX, worldY int) {
+	LabeledValue("Screen:", fmt.Sprintf("(%d, %d)", screenX, screenY), nil)
+	LabeledValue("World:", fmt.Sprintf("(%d, %d)", worldX, worldY), nil)
+}
 
-	direction := GetDirectionText(dx, dy)
-	LabeledValue("Direction:", direction, nil)
+// PlayerInfo displays information about the player
+func PlayerInfo(pos common.Vector2, rot float64, speed float64) {
+	LabeledValue("Position:", fmt.Sprintf("(%.2f, %.2f)", pos.X, pos.Y), nil)
+	LabeledValue("Rotation:", fmt.Sprintf("%.2f", rot), nil)
+	LabeledValue("Speed:", fmt.Sprintf("%.2f", speed), nil)
 }
 
 // KeyBindingEditor displays and allows editing of a key binding

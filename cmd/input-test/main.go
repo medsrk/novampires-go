@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"image/color"
 	"log"
+	"novampires-go/internal/common"
 	"novampires-go/internal/engine/debug"
 	"novampires-go/internal/engine/input"
 )
@@ -21,7 +24,7 @@ type Game struct {
 
 func NewGame() *Game {
 	im := input.New()
-	dm := debug.New()
+	dm := debug.New(debug.Deps{InputManager: im})
 
 	// Add the debug window from the input system
 	dm.AddWindow(im.CreateDebugWindow())
@@ -42,7 +45,7 @@ func (g *Game) Update() error {
 	g.debugMgr.Update()
 
 	// Toggle debug if needed
-	if g.input.JustPressed(input.ActionToggleDebug) {
+	if g.input.JustPressed(common.ActionToggleDebug) {
 		g.debugMgr.Toggle()
 	}
 
@@ -60,6 +63,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw the debug UI
 	g.debugMgr.Draw(screen)
+
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %0.2f\n", ebiten.ActualFPS()))
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -71,6 +76,7 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 func main() {
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Input Test")
+	ebiten.SetVsyncEnabled(false)
 
 	if err := ebiten.RunGame(NewGame()); err != nil {
 		log.Fatal(err)

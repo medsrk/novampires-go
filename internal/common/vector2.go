@@ -1,9 +1,16 @@
 package common
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 type Vector2 struct {
 	X, Y float64
+}
+
+func (v Vector2) String() string {
+	return fmt.Sprintf("(%.2f, %.2f)", v.X, v.Y)
 }
 
 func (v Vector2) Add(v2 Vector2) Vector2 {

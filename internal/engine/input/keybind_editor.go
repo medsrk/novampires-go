@@ -4,7 +4,7 @@ import (
 	"fmt"
 	imgui "github.com/gabstv/cimgui-go"
 	"github.com/hajimehoshi/ebiten/v2"
-	"novampires-go/internal/engine/debug"
+	"novampires-go/internal/common"
 	"sort"
 )
 
@@ -12,7 +12,7 @@ type KeyBindingEditorWindow struct {
 	manager         *Manager
 	open            bool
 	listening       bool
-	selectedAction  Action
+	selectedAction  common.Action
 	rebindMode      bool
 	oldKey          ebiten.Key
 	keyBindings     []KeyActionPair
@@ -24,14 +24,14 @@ type KeyBindingEditorWindow struct {
 // KeyActionPair represents a keyboard binding
 type KeyActionPair struct {
 	Key    ebiten.Key
-	Action Action
+	Action common.Action
 }
 
 // GamepadActionPair represents a gamepad binding
 type GamepadActionPair struct {
 	GamepadID ebiten.GamepadID
 	Button    ebiten.StandardGamepadButton
-	Action    Action
+	Action    common.Action
 }
 
 func NewKeyBindingEditorWindow(manager *Manager) *KeyBindingEditorWindow {
@@ -39,7 +39,7 @@ func NewKeyBindingEditorWindow(manager *Manager) *KeyBindingEditorWindow {
 		manager:         manager,
 		open:            true,
 		listening:       false,
-		selectedAction:  ActionMoveUp,
+		selectedAction:  common.ActionMoveUp,
 		rebindMode:      false,
 		oldKey:          ebiten.Key(0),
 		keyBindings:     nil,
@@ -50,13 +50,16 @@ func NewKeyBindingEditorWindow(manager *Manager) *KeyBindingEditorWindow {
 }
 
 // GetKeyBindings returns keyboard bindings
-func (m *Manager) GetKeyBindings() map[ebiten.Key]Action {
-	bindings := make(map[ebiten.Key]Action)
+func (m *Manager) GetKeyBindings() map[ebiten.Key]common.Action {
+	bindings := make(map[ebiten.Key]common.Action)
+
+	// First, populate bindings with existing key bindings
 	for input, action := range m.bindings {
 		if keyInput, ok := input.(KeyboardKey); ok {
 			bindings[keyInput.Key] = action
 		}
 	}
+
 	return bindings
 }
 
@@ -110,7 +113,7 @@ func (w *KeyBindingEditorWindow) Draw() {
 	w.refreshBindings()
 	//imgui.SetNextWindowSize(imgui.Vec2{X: 450, Y: 500})
 
-	if imgui.Begin("Input Bindings") {
+	if imgui.BeginV("Key Binding Editor", &w.open, imgui.WindowFlagsNone) {
 		// Tab bar for keyboard/gamepad
 		if imgui.BeginTabBar("##input_tabs") {
 			if imgui.BeginTabItem("Keyboard") {
@@ -136,77 +139,112 @@ func (w *KeyBindingEditorWindow) Draw() {
 }
 
 func (w *KeyBindingEditorWindow) drawKeyboardBindings() {
-	// Edit existing bindings section
-	if imgui.CollapsingHeaderTreeNodeFlagsV("Edit Keyboard Bindings", imgui.TreeNodeFlagsDefaultOpen) {
-		for i, binding := range w.keyBindings {
-			actionStr := binding.Action.String()
-			imgui.PushIDInt(int32(i))
+	// All possible actions, loop and display
+	for _, action := range common.Actions {
+		imgui.PushIDInt(int32(action))
+		defer imgui.PopID()
 
-			// Display binding info
-			imgui.Text(fmt.Sprintf("%s:", actionStr))
-			imgui.SameLine()
+		imgui.Text(fmt.Sprintf("%s:", action.String()))
+		imgui.SameLine()
 
-			// Display current key
-			keyName := binding.Key.String()
-			if len(keyName) > 3 && keyName[:3] == "Key" {
-				keyName = keyName[3:]
-			}
+		// Add Button with Color
+		imgui.PushStyleColorVec4(imgui.ColButton, imgui.Vec4{X: 0.5, Y: 0.5, Z: 0.5, W: 1})
+		if imgui.Button("Add") {
+			w.listening = true
+			w.rebindMode = false
+			w.selectedAction = action
+		}
+		imgui.PopStyleColor()
 
-			// Rebinding button
-			buttonText := keyName
-			if w.listening && w.rebindMode && w.oldKey == binding.Key {
-				buttonText = "Press any key..."
-				debug.ColoredText(buttonText, debug.ColorJustPressed)
-			} else {
-				if imgui.Button(buttonText) {
-					w.listening = true
-					w.rebindMode = true
-					w.oldKey = binding.Key
-					w.selectedAction = binding.Action
+		// Collect and sort all bindings
+		type binding struct {
+			displayName string
+			input       InputID
+		}
+		var bindings []binding
+
+		for input, act := range w.manager.bindings {
+			if act == action {
+				var displayName string
+				switch v := input.(type) {
+				case KeyboardKey:
+					keyName := v.Key.String()
+					if len(keyName) > 3 && keyName[:3] == "Key" {
+						keyName = keyName[3:]
+					}
+					displayName = keyName
+				case ComboKey:
+					modName := v.Modifier.String()
+					keyName := v.Key.String()
+					if len(modName) > 3 && modName[:3] == "Key" {
+						modName = modName[3:]
+					}
+					if len(keyName) > 3 && keyName[:3] == "Key" {
+						keyName = keyName[3:]
+					}
+					displayName = fmt.Sprintf("%s+%s", modName, keyName)
+				}
+				// Only add if we have a display name
+				if displayName != "" {
+					bindings = append(bindings, binding{
+						displayName: displayName,
+						input:       input,
+					})
 				}
 			}
-
-			imgui.PopID()
-			imgui.Separator()
-		}
-	}
-
-	// Add new bindings section
-	if imgui.CollapsingHeaderTreeNodeFlagsV("Add New Binding", 0) {
-		// Action selector
-		imgui.Text("Select action:")
-		actions := []Action{
-			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-			ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
-			ActionPause, ActionToggleDebug,
 		}
 
-		for i, action := range actions {
-			imgui.PushIDInt(int32(1000 + i))
-			if imgui.Button(action.String()) {
-				w.selectedAction = action
-			}
-			imgui.PopID()
-			if i%3 != 2 && i < len(actions)-1 {
+		// Sort by display name
+		sort.Slice(bindings, func(i, j int) bool {
+			return bindings[i].displayName < bindings[j].displayName
+		})
+
+		// Display sorted bindings
+		for i, b := range bindings {
+			if i == 0 {
+				imgui.SameLine()
+			} else if i > 0 {
 				imgui.SameLine()
 			}
+
+			imgui.PushIDStr(b.displayName)
+			if imgui.Button(b.displayName) {
+				w.listening = true
+				w.rebindMode = true
+				w.selectedAction = action
+				switch v := b.input.(type) {
+				case KeyboardKey:
+					w.oldKey = v.Key
+				case ComboKey:
+					w.oldKey = v.Key
+				}
+			}
+			imgui.PopID()
+		}
+
+		// Show prompt if listening for key press
+		if w.listening && w.selectedAction == action {
+			imgui.SameLine()
+			imgui.Text("Press Any Key...")
 		}
 
 		imgui.Separator()
-		imgui.Text(fmt.Sprintf("Selected: %s", w.selectedAction.String()))
+	}
+}
 
-		// Bind button
-		bindText := "Bind New Key"
-		if w.listening && !w.rebindMode {
-			bindText = "Press a key..."
-			debug.ColoredText(bindText, debug.ColorJustPressed)
-		} else {
-			if imgui.Button(bindText) {
-				w.listening = true
-				w.rebindMode = false
+// Helper function to get the key name for a given action
+func (w *KeyBindingEditorWindow) getKeyNamesForAction(action common.Action) []string {
+	var keyNames []string
+	for input, act := range w.manager.bindings {
+		if keyInput, ok := input.(KeyboardKey); ok && act == action {
+			keyName := keyInput.Key.String()
+			if len(keyName) > 3 && keyName[:3] == "Key" {
+				keyName = keyName[3:]
 			}
+			keyNames = append(keyNames, keyName)
 		}
 	}
+	return keyNames
 }
 
 // Helper to get standard gamepad button names
@@ -277,11 +315,7 @@ func (w *KeyBindingEditorWindow) drawGamepadBindings() {
 	if imgui.CollapsingHeaderTreeNodeFlagsV("Add Gamepad Binding", 0) {
 		// Action selector
 		imgui.Text("Select action:")
-		actions := []Action{
-			ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-			ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
-			ActionPause, ActionToggleDebug,
-		}
+		actions := common.Actions
 
 		for i, action := range actions {
 			imgui.PushIDInt(int32(3000 + i))
@@ -336,9 +370,20 @@ func (w *KeyBindingEditorWindow) listenForKeyPress() {
 		if ebiten.IsKeyPressed(key) {
 			if int(key) > 0 && int(key) < int(ebiten.KeyMax) {
 				if w.rebindMode {
-					w.manager.Unbind(KeyboardKey{Key: w.oldKey})
+					fmt.Printf("Rebinding key - Old: %v New: %v Action: %v\n", w.oldKey, key, w.selectedAction)
+					// Find and remove old binding
+					for input, act := range w.manager.bindings {
+						if keyInput, ok := input.(KeyboardKey); ok {
+							if keyInput.Key == w.oldKey && act == w.selectedAction {
+								w.manager.Unbind(input)
+								break
+							}
+						}
+					}
+					// Add new binding
 					w.manager.Bind(KeyboardKey{Key: key}, w.selectedAction)
 				} else {
+					fmt.Printf("Adding new binding - Key: %v Action: %v\n", key, w.selectedAction)
 					w.manager.Bind(KeyboardKey{Key: key}, w.selectedAction)
 				}
 				w.needsRefresh = true
@@ -348,4 +393,26 @@ func (w *KeyBindingEditorWindow) listenForKeyPress() {
 			break
 		}
 	}
+}
+
+// Debug window methods
+
+func (w *KeyBindingEditorWindow) Name() string {
+	return common.WindowBindingEdit
+}
+
+func (w *KeyBindingEditorWindow) Toggle() {
+	w.open = !w.open
+}
+
+func (w *KeyBindingEditorWindow) IsOpen() bool {
+	return w.open
+}
+
+func (w *KeyBindingEditorWindow) SetOpen(open bool) {
+	w.open = open
+}
+
+func (w *KeyBindingEditorWindow) Close() {
+	w.open = false
 }

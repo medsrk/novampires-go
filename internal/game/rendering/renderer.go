@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 	"novampires-go/internal/common"
+	"novampires-go/internal/engine/camera"
 )
 
 // ColorPalette defines a consistent set of colors for rendering
@@ -445,6 +446,65 @@ func (r *Renderer) DrawAimLine(screen *ebiten.Image, start common.Vector2, direc
 		r.config.LineThickness*0.5,
 		r.config.ColorPalette.PlayerAimLine,
 	)
+}
+
+// internal/game/rendering/renderer.go
+
+// DrawGrid draws a reference grid that follows camera transformations
+func (r *Renderer) DrawGrid(screen *ebiten.Image, cam *camera.Camera) {
+	gridColor := color.RGBA{50, 50, 60, 80}
+	gridSpacing := 100.0
+
+	// Get the camera's center position
+	center := cam.GetCenter()
+
+	// Get screen dimensions
+	screenW := float64(screen.Bounds().Dx())
+	screenH := float64(screen.Bounds().Dy())
+
+	// Calculate the first grid line positions before the viewport edge
+	startX := center.X - screenW/2 - math.Mod(center.X, gridSpacing) - gridSpacing
+	startY := center.Y - screenH/2 - math.Mod(center.Y, gridSpacing) - gridSpacing
+
+	// Calculate how many lines needed to cover screen
+	numLinesX := int(screenW/gridSpacing) + 3 // +3 to ensure coverage
+	numLinesY := int(screenH/gridSpacing) + 3
+
+	// Draw vertical lines
+	for i := 0; i < numLinesX; i++ {
+		worldX := startX + float64(i)*gridSpacing
+		lineStart := cam.WorldToScreen(common.Vector2{X: worldX, Y: center.Y - screenH/2 - gridSpacing})
+		lineEnd := cam.WorldToScreen(common.Vector2{X: worldX, Y: center.Y + screenH/2 + gridSpacing})
+
+		vector.StrokeLine(
+			screen,
+			float32(lineStart.X),
+			float32(lineStart.Y),
+			float32(lineEnd.X),
+			float32(lineEnd.Y),
+			1,
+			gridColor,
+			false,
+		)
+	}
+
+	// Draw horizontal lines
+	for i := 0; i < numLinesY; i++ {
+		worldY := startY + float64(i)*gridSpacing
+		lineStart := cam.WorldToScreen(common.Vector2{X: center.X - screenW/2 - gridSpacing, Y: worldY})
+		lineEnd := cam.WorldToScreen(common.Vector2{X: center.X + screenW/2 + gridSpacing, Y: worldY})
+
+		vector.StrokeLine(
+			screen,
+			float32(lineStart.X),
+			float32(lineStart.Y),
+			float32(lineEnd.X),
+			float32(lineEnd.Y),
+			1,
+			gridColor,
+			false,
+		)
+	}
 }
 
 // DrawDebugInfo draws useful debug information when enabled

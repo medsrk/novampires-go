@@ -4,6 +4,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"math"
+	"novampires-go/internal/common"
+	"novampires-go/internal/engine/camera"
 )
 
 // InputID represents any type of input (keyboard, gamepad, etc)
@@ -34,49 +36,90 @@ type GamepadAxis struct {
 
 func (g GamepadAxis) isInputID() {}
 
-// Manager handles mapping between physical inputs and game actions
-type Manager struct {
-	bindings   map[InputID]Action
-	axisValues map[GamepadAxis]float64 // cache axis values
+// ComboKey represents a key combination (e.g., Ctrl+P)
+type ComboKey struct {
+	Modifier ebiten.Key
+	Key      ebiten.Key
 }
 
-func New() *Manager {
+func (c ComboKey) isInputID() {}
+
+// Config holds all configurable input parameters
+type Config struct {
+	Deadzone float64 // Deadzone for analog sticks
+}
+
+// DefaultConfig returns a Config with sensible defaults
+func DefaultConfig() *Config {
+	return &Config{
+		Deadzone: 0.2,
+	}
+}
+
+// Manager handles mapping between physical inputs and game actions
+type Manager struct {
+	bindings     map[InputID]common.Action
+	axisValues   map[GamepadAxis]float64
+	playerPos    common.Vector2
+	usingGamepad bool
+	lastMouseX   int
+	lastMouseY   int
+	config       *Config
+	camera       *camera.Camera
+}
+
+// New creates a new input manager with default bindings
+func New() *Manager { return NewWithConfig(DefaultConfig()) }
+
+func NewWithConfig(config *Config) *Manager {
 	m := &Manager{
-		bindings:   make(map[InputID]Action),
+		bindings:   make(map[InputID]common.Action),
 		axisValues: make(map[GamepadAxis]float64),
+		config:     config,
 	}
 
-	// Set default keyboard bindings
-	defaultKeys := map[ebiten.Key]Action{
-		ebiten.KeyW:      ActionMoveUp,
-		ebiten.KeyS:      ActionMoveDown,
-		ebiten.KeyA:      ActionMoveLeft,
-		ebiten.KeyD:      ActionMoveRight,
-		ebiten.KeySpace:  ActionAutoAttack,
-		ebiten.Key1:      ActionUseAbility1,
-		ebiten.Key2:      ActionUseAbility2,
-		ebiten.Key3:      ActionUseAbility3,
-		ebiten.KeyEscape: ActionPause,
-		ebiten.KeyUp:     ActionMoveUp,
-		ebiten.KeyDown:   ActionMoveDown,
-		ebiten.KeyLeft:   ActionMoveLeft,
-		ebiten.KeyRight:  ActionMoveRight,
-		ebiten.KeyF1:     ActionToggleDebug,
+	m.setupDefaultBindings()
+	return m
+}
+
+func (m *Manager) setupDefaultBindings() {
+	// Default keyboard bindings
+	defaultKeys := map[ebiten.Key]common.Action{
+		ebiten.KeyW:      common.ActionMoveUp,
+		ebiten.KeyS:      common.ActionMoveDown,
+		ebiten.KeyA:      common.ActionMoveLeft,
+		ebiten.KeyD:      common.ActionMoveRight,
+		ebiten.KeySpace:  common.ActionAutoAttack,
+		ebiten.Key1:      common.ActionUseAbility1,
+		ebiten.Key2:      common.ActionUseAbility2,
+		ebiten.Key3:      common.ActionUseAbility3,
+		ebiten.KeyEscape: common.ActionPause,
+		ebiten.KeyUp:     common.ActionMoveUp,
+		ebiten.KeyDown:   common.ActionMoveDown,
+		ebiten.KeyLeft:   common.ActionMoveLeft,
+		ebiten.KeyRight:  common.ActionMoveRight,
+		ebiten.KeyF1:     common.ActionToggleDebug,
 	}
 
-	defaultGamepadButtons := map[ebiten.StandardGamepadButton]Action{
-		ebiten.StandardGamepadButtonLeftTop:    ActionMoveUp,    // D-pad Up
-		ebiten.StandardGamepadButtonLeftRight:  ActionMoveRight, // D-pad Right
-		ebiten.StandardGamepadButtonLeftBottom: ActionMoveDown,  // D-pad Down
-		ebiten.StandardGamepadButtonLeftLeft:   ActionMoveLeft,  // D-pad Left
+	defaultGamepadButtons := map[ebiten.StandardGamepadButton]common.Action{
+		ebiten.StandardGamepadButtonLeftTop:    common.ActionMoveUp,
+		ebiten.StandardGamepadButtonLeftRight:  common.ActionMoveRight,
+		ebiten.StandardGamepadButtonLeftBottom: common.ActionMoveDown,
+		ebiten.StandardGamepadButtonLeftLeft:   common.ActionMoveLeft,
 
-		ebiten.StandardGamepadButtonRightBottom: ActionAutoAttack,  // A/Cross
-		ebiten.StandardGamepadButtonRightRight:  ActionUseAbility1, // B/Circle
-		ebiten.StandardGamepadButtonRightLeft:   ActionUseAbility2, // X/Square
-		ebiten.StandardGamepadButtonRightTop:    ActionUseAbility3, // Y/Triangle
+		ebiten.StandardGamepadButtonRightBottom: common.ActionAutoAttack,
+		ebiten.StandardGamepadButtonRightRight:  common.ActionUseAbility1,
+		ebiten.StandardGamepadButtonRightLeft:   common.ActionUseAbility2,
+		ebiten.StandardGamepadButtonRightTop:    common.ActionUseAbility3,
 
-		ebiten.StandardGamepadButtonCenterRight: ActionPause,       // Start
-		ebiten.StandardGamepadButtonCenterLeft:  ActionToggleDebug, // Select
+		ebiten.StandardGamepadButtonCenterRight: common.ActionPause,
+		ebiten.StandardGamepadButtonCenterLeft:  common.ActionToggleDebug,
+	}
+
+	defaultDebugBindings := map[ComboKey]common.Action{
+		{Modifier: ebiten.KeyControl, Key: ebiten.KeyP}: common.ActionTogglePlayerDebug,
+		{Modifier: ebiten.KeyControl, Key: ebiten.KeyI}: common.ActionToggleInputDebug,
+		{Modifier: ebiten.KeyControl, Key: ebiten.KeyB}: common.ActionToggleBindingEditor,
 	}
 
 	for k, v := range defaultKeys {
@@ -87,17 +130,69 @@ func New() *Manager {
 		m.Bind(GamepadButton{Button: b}, v)
 	}
 
-	return m
+	for c, v := range defaultDebugBindings {
+		m.Bind(c, v)
+	}
+}
+
+func (m *Manager) updateGamepadState() {
+	ids := ebiten.AppendGamepadIDs(nil)
+	wasUsingGamepad := m.usingGamepad
+
+	if len(ids) > 0 {
+		// Check for any gamepad input
+		for _, id := range ids {
+			// Check buttons
+			for b := ebiten.StandardGamepadButtonLeftTop; b <= ebiten.StandardGamepadButtonMax; b++ {
+				if ebiten.IsStandardGamepadButtonPressed(id, b) {
+					m.usingGamepad = true
+					return
+				}
+			}
+
+			// Check sticks
+			dx := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal)
+			dy := ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical)
+			if math.Abs(dx) >= m.config.Deadzone || math.Abs(dy) >= m.config.Deadzone {
+				m.usingGamepad = true
+				return
+			}
+		}
+	}
+
+	// Check if mouse moved
+	x, y := ebiten.CursorPosition()
+	if x != m.lastMouseX || y != m.lastMouseY {
+		m.usingGamepad = false
+		m.lastMouseX = x
+		m.lastMouseY = y
+	}
+
+	// Check keyboard input
+	for k := ebiten.Key(0); k <= ebiten.KeyMax; k++ {
+		if ebiten.IsKeyPressed(k) {
+			m.usingGamepad = false
+			return
+		}
+	}
+
+	// Preserve previous state if no input detected
+	m.usingGamepad = wasUsingGamepad
+}
+
+func (m *Manager) Update() error {
+	m.updateGamepadState()
+	return nil
 }
 
 func (m *Manager) Rebind(oldInput InputID, newInput InputID) {
-	action := m.bindings[oldInput]
+	binding := m.bindings[oldInput]
 	m.Unbind(oldInput)
-	m.Bind(newInput, action)
+	m.Bind(newInput, binding)
 }
 
-func (m *Manager) Bind(input InputID, action Action) {
-	m.bindings[input] = action
+func (m *Manager) Bind(input InputID, binding common.Action) {
+	m.bindings[input] = binding
 }
 
 func (m *Manager) Unbind(input InputID) {
@@ -110,6 +205,8 @@ func (m *Manager) isInputActive(id InputID) bool {
 		return ebiten.IsKeyPressed(v.Key)
 	case GamepadButton:
 		return ebiten.IsStandardGamepadButtonPressed(v.GamepadID, v.Button)
+	case ComboKey:
+		return ebiten.IsKeyPressed(v.Modifier) && ebiten.IsKeyPressed(v.Key)
 	default:
 		return false
 	}
@@ -121,6 +218,10 @@ func (m *Manager) isInputJustPressed(id InputID) bool {
 		return inpututil.IsKeyJustPressed(v.Key)
 	case GamepadButton:
 		return inpututil.IsStandardGamepadButtonJustPressed(v.GamepadID, v.Button)
+	case ComboKey:
+		// For combo keys, detect just pressed when either key is just pressed while the other is held
+		return (ebiten.IsKeyPressed(v.Modifier) && inpututil.IsKeyJustPressed(v.Key)) ||
+			(ebiten.IsKeyPressed(v.Key) && inpututil.IsKeyJustPressed(v.Modifier))
 	default:
 		return false
 	}
@@ -132,12 +233,18 @@ func (m *Manager) isInputJustReleased(id InputID) bool {
 		return inpututil.IsKeyJustReleased(v.Key)
 	case GamepadButton:
 		return inpututil.IsStandardGamepadButtonJustReleased(v.GamepadID, v.Button)
+	case ComboKey:
+		// Both keys must have been pressed in the previous frame
+		wasPressedPreviousFrame := inpututil.IsKeyJustReleased(v.Key) || inpututil.IsKeyJustReleased(v.Modifier)
+		wasComboActive := inpututil.IsKeyJustReleased(v.Key) && ebiten.IsKeyPressed(v.Modifier) ||
+			inpututil.IsKeyJustReleased(v.Modifier) && ebiten.IsKeyPressed(v.Key)
+		return wasPressedPreviousFrame && wasComboActive
 	default:
 		return false
 	}
 }
 
-func (m *Manager) IsPressed(action Action) bool {
+func (m *Manager) IsPressed(action common.Action) bool {
 	for input, a := range m.bindings {
 		if a == action && m.isInputActive(input) {
 			return true
@@ -146,7 +253,7 @@ func (m *Manager) IsPressed(action Action) bool {
 	return false
 }
 
-func (m *Manager) JustPressed(action Action) bool {
+func (m *Manager) JustPressed(action common.Action) bool {
 	for input, a := range m.bindings {
 		if a == action && m.isInputJustPressed(input) {
 			return true
@@ -155,7 +262,7 @@ func (m *Manager) JustPressed(action Action) bool {
 	return false
 }
 
-func (m *Manager) JustReleased(action Action) bool {
+func (m *Manager) JustReleased(action common.Action) bool {
 	for input, a := range m.bindings {
 		if a == action && m.isInputJustReleased(input) {
 			return true
@@ -168,119 +275,107 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 	dx, dy := 0.0, 0.0
 
 	// Digital input (keyboard/d-pad)
-	if m.IsPressed(ActionMoveUp) {
+	if m.IsPressed(common.ActionMoveUp) {
 		dy--
 	}
-	if m.IsPressed(ActionMoveDown) {
+	if m.IsPressed(common.ActionMoveDown) {
 		dy++
 	}
-	if m.IsPressed(ActionMoveLeft) {
+	if m.IsPressed(common.ActionMoveLeft) {
 		dx--
 	}
-	if m.IsPressed(ActionMoveRight) {
+	if m.IsPressed(common.ActionMoveRight) {
 		dx++
 	}
 
-	// If no digital input, check stick
-	if dx == 0 && dy == 0 {
-		// Get first connected gamepad
-		ids := ebiten.AppendGamepadIDs(nil)
-		if len(ids) > 0 {
-			dx = ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisLeftStickHorizontal)
-			dy = ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisLeftStickVertical)
-
-			// Apply deadzone
-			deadzone := 0.2 // Typical value, could be made configurable
-			if math.Abs(dx) < deadzone {
-				dx = 0
-			}
-			if math.Abs(dy) < deadzone {
-				dy = 0
-			}
-		}
+	// If using digital input, normalize to get full magnitude
+	if dx != 0 || dy != 0 {
+		return normalizeVector(dx, dy)
 	}
 
-	// Normalize for diagonal movement
-	if dx != 0 && dy != 0 {
-		length := math.Sqrt(dx*dx + dy*dy)
-		if length > 1 {
-			dx /= length
-			dy /= length
+	// Check analog stick
+	ids := ebiten.AppendGamepadIDs(nil)
+	if len(ids) > 0 {
+		dx = ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisLeftStickHorizontal)
+		dy = ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisLeftStickVertical)
+
+		// Apply deadzone with smooth transition
+		magnitude := math.Sqrt(dx*dx + dy*dy)
+		if magnitude < m.config.Deadzone {
+			return 0, 0
 		}
+
+		// Smooth out the deadzone transition
+		adjustedMagnitude := (magnitude - m.config.Deadzone) / (1 - m.config.Deadzone)
+		dx = dx / magnitude * adjustedMagnitude
+		dy = dy / magnitude * adjustedMagnitude
 	}
 
 	return dx, dy
 }
 
-func (m *Manager) GetAimVector() (float64, float64) {
-	// First try to get aim from right stick if a gamepad is connected
+func (m *Manager) GetMousePositionWorld() (int, int) {
+	x, y := ebiten.CursorPosition()
+	if m.camera != nil {
+		worldPos := m.camera.ScreenToWorld(common.Vector2{X: float64(x), Y: float64(y)})
+		return int(worldPos.X), int(worldPos.Y)
+	}
+	return x, y
+}
+
+func (m *Manager) GetMousePositionScreen() (int, int) {
+	return ebiten.CursorPosition()
+}
+
+func (m *Manager) SetCamera(camera *camera.Camera) {
+	m.camera = camera
+}
+
+func (m *Manager) GetGamepadAim() (float64, float64, bool) {
 	ids := ebiten.AppendGamepadIDs(nil)
 	if len(ids) > 0 {
-		// Get right stick values
 		dx := ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisRightStickHorizontal)
 		dy := ebiten.StandardGamepadAxisValue(ids[0], ebiten.StandardGamepadAxisRightStickVertical)
 
-		// Apply deadzone
-		deadzone := 0.2
-		if math.Abs(dx) >= deadzone || math.Abs(dy) >= deadzone {
-			// Return gamepad input if it's above deadzone
-			// Normalize for consistent magnitude
-			length := math.Sqrt(dx*dx + dy*dy)
-			if length > 1.0 {
-				dx /= length
-				dy /= length
-			}
-			return dx, dy
+		if math.Abs(dx) >= m.config.Deadzone || math.Abs(dy) >= m.config.Deadzone {
+			return dx, dy, true
 		}
 	}
-
-	// If no gamepad or gamepad input below deadzone, try mouse
-	mx, my := ebiten.CursorPosition()
-	cx, cy := ebiten.WindowSize()
-	cx /= 2
-	cy /= 2
-
-	// Check if mouse is being used (moved or button pressed)
-	mouseIsActive := mx != 0 || my != 0 || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-
-	if mouseIsActive {
-		// Calculate vector from center to mouse
-		dx := float64(mx - cx)
-		dy := float64(my - cy)
-
-		// Only normalize if the vector has length (avoid division by zero)
-		length := math.Sqrt(dx*dx + dy*dy)
-		if length > 0 {
-			dx /= length
-			dy /= length
-			return dx, dy
-		}
-	}
-
-	// If we reach here, neither gamepad nor mouse provided a valid aim vector
-	// Return the last valid direction (could be implemented with a cache)
-	// Or return a default direction based on player's facing
-
-	// For now, return forward direction (0,-1) as fallback
-	return 0, -1
+	return 0, 0, false
 }
 
 // GetAllBindings returns all input bindings, including gamepad bindings
-func (m *Manager) GetAllBindings() map[InputID]Action {
+func (m *Manager) GetAllBindings() map[InputID]common.Action {
 	// Return a copy of all bindings
-	allBindings := make(map[InputID]Action)
+	allBindings := make(map[InputID]common.Action)
 	for k, v := range m.bindings {
 		allBindings[k] = v
 	}
 	return allBindings
 }
 
-func (m *Manager) GetActionState(action Action) ActionState {
-	return ActionState{
+func (m *Manager) GetActionState(action common.Action) common.ActionState {
+	return common.ActionState{
 		Active:       m.IsPressed(action),
 		JustPressed:  m.JustPressed(action),
 		JustReleased: m.JustReleased(action),
 	}
+}
+
+// IsUsingGamepad returns whether the last input came from a gamepad
+func (m *Manager) IsUsingGamepad() bool {
+	return m.usingGamepad
+}
+
+// normalizeVector normalizes a 2D vector if its length is greater than 1
+func normalizeVector(x, y float64) (float64, float64) {
+	if x != 0 && y != 0 {
+		length := math.Sqrt(x*x + y*y)
+		if length > 1 {
+			return x / length, y / length
+		}
+	}
+	return x, y
 }
 
 func (m *Manager) CreateDebugWindow() *DebugWindow {

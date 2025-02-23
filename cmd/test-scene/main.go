@@ -2,15 +2,18 @@
 package main
 
 import (
+	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"image/color"
 	"log"
 	"math"
 	"novampires-go/internal/common"
+	"novampires-go/internal/engine/camera"
 	"novampires-go/internal/engine/debug"
 	"novampires-go/internal/engine/input"
-	"novampires-go/internal/game/player"
+	"novampires-go/internal/game"
+	"novampires-go/internal/game/config"
 	"novampires-go/internal/game/rendering"
 )
 
@@ -19,68 +22,41 @@ const (
 	screenHeight = 900
 )
 
-type Game struct {
-	input            *input.Manager
-	debugMgr         *debug.Manager
-	renderer         *rendering.Renderer
-	playerController *player.Controller
-	targets          []common.TargetInfo
-	frameCount       int
+// TestScene implements the game.Scene interface
+type TestScene struct {
+	game       *game.Game
+	targets    []common.TargetInfo
+	frameCount int
 }
 
-func NewGame() *Game {
-	// Initialize input manager
-	im := input.New()
-
-	// Initialize debug manager
-	dm := debug.New()
-	dm.AddWindow(im.CreateDebugWindow())
-	keyBindEditor := input.NewKeyBindingEditorWindow(im)
-	dm.AddWindow(keyBindEditor)
-	dm.SetDisplaySize(screenWidth, screenHeight)
-
-	// Initialize renderer
-	renderCfg := rendering.DefaultRenderConfig()
-	renderer := rendering.NewRenderer(renderCfg)
-
-	// Create player controller at center of screen
-	startPos := common.Vector2{
-		X: float64(screenWidth) / 2,
-		Y: float64(screenHeight) / 2,
-	}
-	controllerCfg := player.DefaultConfig()
-	playerController := player.NewController(im, startPos, controllerCfg)
-
-	// Create some target entities
-	targets := createInitialTargets()
-
-	return &Game{
-		input:            im,
-		debugMgr:         dm,
-		renderer:         renderer,
-		playerController: playerController,
-		targets:          targets,
-		frameCount:       0,
+func NewTestScene(g *game.Game) *TestScene {
+	return &TestScene{
+		game:       g,
+		targets:    createInitialTargets(),
+		frameCount: 0,
 	}
 }
 
 func createInitialTargets() []common.TargetInfo {
 	targets := make([]common.TargetInfo, 0, 4)
 
-	// Add some targets at different positions
-	enemyPositions := []common.Vector2{
-		{X: screenWidth / 4, Y: screenHeight / 4},
-		{X: screenWidth * 3 / 4, Y: screenHeight / 4},
-		{X: screenWidth / 4, Y: screenHeight * 3 / 4},
-		{X: screenWidth * 3 / 4, Y: screenHeight * 3 / 4},
-	}
+	// Add targets in a circular pattern around center
+	centerX := screenWidth / 2
+	centerY := screenHeight / 2
+	radius := 300.0
 
-	for i, pos := range enemyPositions {
-		// Initial velocity in circular pattern direction
-		angle := float64(i) * math.Pi / 2 // Distribute angles
+	for i := 0; i < 4; i++ {
+		// Distribute evenly around circle
+		angle := float64(i) * math.Pi / 2
+		pos := common.Vector2{
+			X: float64(centerX) + math.Cos(angle)*radius,
+			Y: float64(centerY) + math.Sin(angle)*radius,
+		}
+
+		// Initial velocity tangent to circle
 		velocity := common.Vector2{
-			X: math.Cos(angle) * 2,
-			Y: math.Sin(angle) * 2,
+			X: -math.Sin(angle) * 5,
+			Y: math.Cos(angle) * 5,
 		}
 
 		targets = append(targets, common.TargetInfo{
@@ -88,46 +64,39 @@ func createInitialTargets() []common.TargetInfo {
 			Pos:      pos,
 			Vel:      velocity,
 			Radius:   15,
-			Priority: float64(i + 1), // Different priorities
+			Priority: float64(i + 1),
 		})
 	}
 
 	return targets
 }
 
-func (g *Game) Update() error {
-	g.frameCount++
+func (s *TestScene) Update() error {
+	s.frameCount++
 
-	// Update the debug manager
-	g.debugMgr.Update()
-
-	// Toggle debug if needed
-	if g.input.JustPressed(input.ActionToggleDebug) {
-		g.debugMgr.Toggle()
-	}
+	playerController := s.game.GetPlayerController()
 
 	// Update player controller with current targets
-	g.playerController.Update(g.targets)
+	playerController.Update(s.targets)
 
 	// Move targets in circular patterns
-	for i := range g.targets {
-		// Calculate circular movement
-		centerX := screenWidth / 2
-		centerY := screenHeight / 2
-		radius := 300.0
+	centerX := screenWidth / 2
+	centerY := screenHeight / 2
+	radius := 300.0
 
+	for i := range s.targets {
 		// Each target moves at slightly different speeds
 		speed := 0.005 + float64(i)*0.002
+		angle := float64(s.frameCount)*speed + float64(i)*(math.Pi/2)
 
-		// Calculate position on circle
-		angle := float64(g.frameCount)*speed + float64(i)*(math.Pi/2)
-		g.targets[i].Pos = common.Vector2{
+		// Update position
+		s.targets[i].Pos = common.Vector2{
 			X: float64(centerX) + math.Cos(angle)*radius,
 			Y: float64(centerY) + math.Sin(angle)*radius,
 		}
 
-		// Calculate velocity (tangent to circle)
-		g.targets[i].Vel = common.Vector2{
+		// Update velocity (tangent to circle)
+		s.targets[i].Vel = common.Vector2{
 			X: -math.Sin(angle) * 5,
 			Y: math.Cos(angle) * 5,
 		}
@@ -136,101 +105,99 @@ func (g *Game) Update() error {
 	return nil
 }
 
-func (g *Game) Draw(screen *ebiten.Image) {
-	// Clear the screen with background color
+func (s *TestScene) Draw(screen *ebiten.Image) {
+	deps := s.game.GetDependencies()
+	playerController := s.game.GetPlayerController()
+
+	// Clear the screen
 	screen.Fill(color.RGBA{20, 20, 30, 255})
 
-	// Draw a grid for reference
-	g.drawGrid(screen)
+	// Get player information
+	playerPos := playerController.GetPosition()
+	playerRot := playerController.GetRotation()
+	aimDir := playerController.GetAimDirection() // World-space aim direction
 
-	// Get player position and information
-	playerPos := g.playerController.GetPosition()
-	playerRot := g.playerController.GetRotation()
-	aimDir := g.playerController.GetAimDirection()
+	// Transform player position to screen coordinates
+	screenPos := deps.Camera.WorldToScreen(playerPos)
+
+	// Draw background grid
+	deps.Renderer.DrawGrid(screen, deps.Camera)
 
 	// Draw player
-	g.renderer.DrawPlayerCharacter(screen, playerPos, playerRot, 20)
+	deps.Renderer.DrawPlayerCharacter(screen, screenPos, playerRot, 20)
 
-	// Draw aim line
-	g.renderer.DrawAimLine(screen, playerPos, aimDir, 200)
+	// Draw aim line:  CORRECTED
+	deps.Renderer.DrawAimLine(screen, screenPos, aimDir, 200)
 
+	// ... (rest of the drawing code) ...
 	// Draw targets
-	for _, target := range g.targets {
-		// Draw the target circle
-		g.renderer.DrawCircle(screen, target.Pos, target.Radius, color.RGBA{204, 0, 0, 255})
+	for _, target := range s.targets {
+		// Transform target position
+		targetScreenPos := deps.Camera.WorldToScreen(target.Pos)
+
+		// Draw target circle
+		deps.Renderer.DrawCircle(screen, targetScreenPos, target.Radius, color.RGBA{204, 0, 0, 255})
 
 		// Draw velocity vector
-		endPoint := target.Pos.Add(target.Vel.Scale(5))
-		g.renderer.DrawLine(
+		velEndPos := deps.Camera.WorldToScreen(target.Pos.Add(target.Vel.Scale(5)))
+		deps.Renderer.DrawLine(
 			screen,
-			target.Pos,
-			endPoint,
+			targetScreenPos,
+			velEndPos,
 			2,
 			color.RGBA{255, 255, 100, 200},
 		)
 
-		// Draw health bar for each target
+		// Draw health bar
 		healthBarWidth := target.Radius * 2
 		healthBarHeight := 4.0
 		healthBarPos := common.Vector2{
-			X: target.Pos.X - healthBarWidth/2,
-			Y: target.Pos.Y - target.Radius - 10,
+			X: targetScreenPos.X - healthBarWidth/2,
+			Y: targetScreenPos.Y - target.Radius - 10,
 		}
 
-		// Use priority as "health" for visualization
-		healthPercent := target.Priority / 4.0 // Assuming max priority is 4.0
-		g.renderer.DrawHealthBar(screen, healthBarPos, healthBarWidth, healthBarHeight, healthPercent)
+		deps.Renderer.DrawHealthBar(screen, healthBarPos, healthBarWidth, healthBarHeight, target.Priority/4.0)
 	}
 
-	// Draw debug UI
-	g.debugMgr.Draw(screen)
-}
-
-// Draw a reference grid
-func (g *Game) drawGrid(screen *ebiten.Image) {
-	gridColor := color.RGBA{50, 50, 60, 80}
-	gridSpacing := 100
-
-	// Vertical lines
-	for x := gridSpacing; x < screenWidth; x += gridSpacing {
-		vector.StrokeLine(
-			screen,
-			float32(x),
-			0,
-			float32(x),
-			float32(screenHeight),
-			1,
-			gridColor,
-			false,
-		)
-	}
-
-	// Horizontal lines
-	for y := gridSpacing; y < screenHeight; y += gridSpacing {
-		vector.StrokeLine(
-			screen,
-			0,
-			float32(y),
-			float32(screenWidth),
-			float32(y),
-			1,
-			gridColor,
-			false,
-		)
-	}
-}
-
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	// Update ImGui display size if window is resized
-	g.debugMgr.SetDisplaySize(float32(outsideWidth), float32(outsideHeight))
-	return screenWidth, screenHeight
+	// Draw FPS counter
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()))
 }
 
 func main() {
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("NoVampires Test Scene")
+	// Initialize core systems
+	im := input.New()
+	dm := debug.New(debug.Deps{InputManager: im})
 
-	if err := ebiten.RunGame(NewGame()); err != nil {
+	// Initialize camera
+	cam := camera.New()
+	im.SetCamera(cam)
+
+	// Create game dependencies
+	deps := game.Dependencies{
+		InputManager: im,
+		DebugManager: dm,
+		Camera:       cam,
+		Renderer:     rendering.NewRenderer(rendering.DefaultRenderConfig()),
+		Config:       config.Default(),
+		ScreenWidth:  screenWidth,
+		ScreenHeight: screenHeight,
+	}
+
+	// Create game instance
+	g := game.NewGame(deps)
+
+	// Create and set test scene
+	scene := NewTestScene(g)
+	g.SetScene(scene)
+
+	// Set up window
+	ebiten.SetWindowSize(screenWidth, screenHeight)
+	ebiten.SetWindowTitle("NoVampires Test Scene")
+
+	// Run the game
+	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
 }

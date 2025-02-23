@@ -21,7 +21,7 @@ func DefaultDisplay() DisplayConfig {
 		VSync:         true,
 		TargetFPS:     60,
 		ShowFPS:       true,
-		ShowDebugInfo: false,
+		ShowDebugInfo: true,
 	}
 }
 

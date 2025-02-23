@@ -4,19 +4,26 @@ import (
 	"fmt"
 	imgui "github.com/gabstv/cimgui-go"
 	"github.com/hajimehoshi/ebiten/v2"
+	"novampires-go/internal/common"
 	"novampires-go/internal/engine/debug"
+	"unsafe"
 )
 
 type DebugWindow struct {
 	manager *Manager
 	open    bool
+	openPtr unsafe.Pointer
 }
 
 func NewDebugWindow(manager *Manager) *DebugWindow {
-	return &DebugWindow{
+	w := &DebugWindow{
 		manager: manager,
 		open:    true,
 	}
+
+	w.openPtr = unsafe.Pointer(&w.open)
+
+	return w
 }
 
 func (w *DebugWindow) Draw() {
@@ -24,17 +31,12 @@ func (w *DebugWindow) Draw() {
 		return
 	}
 
-	// Use the FixedWindow component
-	debug.FixedWindow("Input Debug", 400, 500, func() {
+	visible := imgui.BeginV("Input Window", (*bool)(w.openPtr), imgui.WindowFlagsNone)
+	if visible {
 		// Input states section
 		debug.CollapsingSection("Input States", func() {
-			actions := []Action{
-				ActionMoveUp, ActionMoveDown, ActionMoveLeft, ActionMoveRight,
-				ActionAutoAttack, ActionUseAbility1, ActionUseAbility2, ActionUseAbility3,
-				ActionPause, ActionToggleDebug,
-			}
 
-			for _, a := range actions {
+			for _, a := range common.Actions {
 				debug.InputActionState(
 					a.String(),
 					w.manager.IsPressed(a),
@@ -49,10 +51,12 @@ func (w *DebugWindow) Draw() {
 			dx, dy := w.manager.GetMovementVector()
 			debug.MovementInfo(dx, dy)
 		})
-		// Aim vector section
-		debug.CollapsingSection("Aim Vector", func() {
-			dx, dy := w.manager.GetAimVector()
-			debug.AimInfo(dx, dy)
+
+		// Mouse position section
+		debug.CollapsingSection("Mouse Position", func() {
+			screenX, screenY := w.manager.GetMousePositionScreen()
+			worldX, worldY := w.manager.GetMousePositionWorld()
+			debug.MousePosition(screenX, screenY, worldX, worldY)
 		})
 
 		// Connected gamepads section
@@ -72,5 +76,27 @@ func (w *DebugWindow) Draw() {
 				}
 			}
 		})
-	})
+	}
+	imgui.End()
+
+}
+
+func (w *DebugWindow) Name() string {
+	return common.WindowInputDebug
+}
+
+func (w *DebugWindow) Toggle() {
+	w.open = !w.open
+}
+
+func (w *DebugWindow) IsOpen() bool {
+	return w.open
+}
+
+func (w *DebugWindow) SetOpen(open bool) {
+	w.open = open
+}
+
+func (w *DebugWindow) Close() {
+	w.open = false
 }
