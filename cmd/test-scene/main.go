@@ -1,13 +1,12 @@
-// cmd/test-scene/main.go
 package main
 
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"image/color"
 	"log"
 	"math"
+	"net/http"
 	"novampires-go/internal/common"
 	"novampires-go/internal/engine/camera"
 	"novampires-go/internal/engine/debug"
@@ -15,6 +14,11 @@ import (
 	"novampires-go/internal/game"
 	"novampires-go/internal/game/config"
 	"novampires-go/internal/game/rendering"
+	"runtime"
+	"time"
+
+	_ "github.com/ebitengine/purego"
+	_ "net/http/pprof"
 )
 
 const (
@@ -109,61 +113,40 @@ func (s *TestScene) Draw(screen *ebiten.Image) {
 	deps := s.game.GetDependencies()
 	playerController := s.game.GetPlayerController()
 
-	// Clear the screen
-	screen.Fill(color.RGBA{20, 20, 30, 255})
-
-	// Get player information
-	playerPos := playerController.GetPosition()
-	playerRot := playerController.GetRotation()
-	aimDir := playerController.GetAimDirection() // World-space aim direction
-
-	// Transform player position to screen coordinates
-	screenPos := deps.Camera.WorldToScreen(playerPos)
+	deps.Renderer.BeginFrame(screen)
 
 	// Draw background grid
-	deps.Renderer.DrawGrid(screen, deps.Camera)
+	deps.Renderer.DrawGrid(screen)
 
-	// Draw player
-	deps.Renderer.DrawPlayerCharacter(screen, screenPos, playerRot, 20)
-
-	// Draw aim line:  CORRECTED
-	deps.Renderer.DrawAimLine(screen, screenPos, aimDir, 200)
-
-	// ... (rest of the drawing code) ...
-	// Draw targets
+	// Draw all targets
 	for _, target := range s.targets {
-		// Transform target position
-		targetScreenPos := deps.Camera.WorldToScreen(target.Pos)
+		deps.Renderer.DrawCircle(screen, target.Pos, target.Radius, color.RGBA{204, 0, 0, 255})
+		velEndPos := target.Pos.Add(target.Vel.Scale(5))
+		deps.Renderer.DrawLine(screen, target.Pos, velEndPos, 2, color.RGBA{255, 255, 100, 200})
 
-		// Draw target circle
-		deps.Renderer.DrawCircle(screen, targetScreenPos, target.Radius, color.RGBA{204, 0, 0, 255})
-
-		// Draw velocity vector
-		velEndPos := deps.Camera.WorldToScreen(target.Pos.Add(target.Vel.Scale(5)))
-		deps.Renderer.DrawLine(
-			screen,
-			targetScreenPos,
-			velEndPos,
-			2,
-			color.RGBA{255, 255, 100, 200},
-		)
-
-		// Draw health bar
-		healthBarWidth := target.Radius * 2
-		healthBarHeight := 4.0
 		healthBarPos := common.Vector2{
-			X: targetScreenPos.X - healthBarWidth/2,
-			Y: targetScreenPos.Y - target.Radius - 10,
+			X: target.Pos.X - target.Radius,
+			Y: target.Pos.Y - target.Radius - 10,
 		}
-
-		deps.Renderer.DrawHealthBar(screen, healthBarPos, healthBarWidth, healthBarHeight, target.Priority/4.0)
+		deps.Renderer.DrawHealthBar(screen, healthBarPos, target.Radius*2, 4.0, target.Priority/4.0)
 	}
 
-	// Draw FPS counter
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()))
+	// Draw player
+	playerPos := playerController.GetPosition()
+	playerRot := playerController.GetRotation()
+	aimDir := playerController.GetAimDirection()
+
+	deps.Renderer.DrawPlayerCharacter(screen, playerPos, playerRot, 20)
+	deps.Renderer.DrawAimLine(screen, playerPos, aimDir, 200)
+
+	// Draw UI
+	deps.Renderer.DrawUIText(fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()), common.Vector2{X: 8, Y: 8}, color.RGBA{255, 255, 255, 255})
+
+	deps.Renderer.EndFrame(screen)
 }
 
 func main() {
+	setupMemoryProfiling()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("NoVampires Test Scene")
 	// Initialize core systems
@@ -179,7 +162,7 @@ func main() {
 		InputManager: im,
 		DebugManager: dm,
 		Camera:       cam,
-		Renderer:     rendering.NewRenderer(rendering.DefaultRenderConfig()),
+		Renderer:     rendering.NewRenderer(rendering.DefaultRenderConfig(), cam),
 		Config:       config.Default(),
 		ScreenWidth:  screenWidth,
 		ScreenHeight: screenHeight,
@@ -200,4 +183,19 @@ func main() {
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setupMemoryProfiling() {
+	// Add memory profiling
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	// Force garbage collection more frequently during development
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			runtime.GC()
+		}
+	}()
 }

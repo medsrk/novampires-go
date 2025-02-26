@@ -2,6 +2,7 @@ package rendering
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"image/color"
 	"math"
@@ -103,216 +104,107 @@ func DefaultRenderConfig() RenderConfig {
 
 // Renderer provides methods for drawing game elements
 type Renderer struct {
-	config RenderConfig
+	config      RenderConfig
+	camera      *camera.Camera
+	worldBuffer *ebiten.Image
+	uiBuffer    *ebiten.Image
+
+	// World origin in buffer coordinates
+	worldOriginX float64
+	worldOriginY float64
 }
 
 // NewRenderer creates a new renderer with specified configuration
-func NewRenderer(config RenderConfig) *Renderer {
+func NewRenderer(config RenderConfig, camera *camera.Camera) *Renderer {
 	return &Renderer{
 		config: config,
+		camera: camera,
 	}
 }
 
-// Draw renders the current game state
-func (r *Renderer) Draw(screen *ebiten.Image) {
-	// Clear the screen with background color
-	screen.Fill(r.config.ColorPalette.UIBackground)
+func (r *Renderer) BeginFrame(screen *ebiten.Image) {
+	// Get screen dimensions
+	screenWidth, screenHeight := screen.Bounds().Dx(), screen.Bounds().Dy()
 
-	// Draw a simple grid background
-	gridColor := color.RGBA{50, 50, 60, 80}
-	gridSpacing := 100
+	// Calculate the required buffer size based on camera zoom
+	zoom := r.camera.GetZoom()
+	// Add a small margin to prevent edge artifacts during rotation
+	bufferWidth := int(float64(screenWidth) / zoom * 1.2)
+	bufferHeight := int(float64(screenHeight) / zoom * 1.2)
 
-	// Vertical grid lines
-	for x := gridSpacing; x < screen.Bounds().Dx(); x += gridSpacing {
-		vector.StrokeLine(
-			screen,
-			float32(x),
-			0,
-			float32(x),
-			float32(screen.Bounds().Dy()),
-			1,
-			gridColor,
-			false,
-		)
+	// Create or resize world buffer as needed
+	if r.worldBuffer == nil ||
+		r.worldBuffer.Bounds().Dx() != bufferWidth ||
+		r.worldBuffer.Bounds().Dy() != bufferHeight {
+		r.worldBuffer = ebiten.NewImage(bufferWidth, bufferHeight)
 	}
 
-	// Horizontal grid lines
-	for y := gridSpacing; y < screen.Bounds().Dy(); y += gridSpacing {
-		vector.StrokeLine(
-			screen,
-			0,
-			float32(y),
-			float32(screen.Bounds().Dx()),
-			float32(y),
-			1,
-			gridColor,
-			false,
-		)
+	// Create or resize UI buffer as needed
+	if r.uiBuffer == nil ||
+		r.uiBuffer.Bounds().Dx() != screenWidth ||
+		r.uiBuffer.Bounds().Dy() != screenHeight {
+		r.uiBuffer = ebiten.NewImage(screenWidth, screenHeight)
 	}
 
-	// Draw a test player character in the center
-	playerPos := common.Vector2{
-		X: float64(screen.Bounds().Dx()) / 2,
-		Y: float64(screen.Bounds().Dy()) / 2,
-	}
-	playerRotation := math.Pi / 4 // 45 degrees
-	r.DrawPlayerCharacter(screen, playerPos, playerRotation, 20.0)
-
-	// Draw aim line for player
-	dirVec := common.Vector2{X: math.Cos(playerRotation), Y: math.Sin(playerRotation)}
-	r.DrawAimLine(screen, playerPos, dirVec, 200)
-
-	// Draw some test enemies
-	enemyPositions := []common.Vector2{
-		{X: float64(screen.Bounds().Dx()) / 4, Y: float64(screen.Bounds().Dy()) / 4},
-		{X: float64(screen.Bounds().Dx()) * 3 / 4, Y: float64(screen.Bounds().Dy()) / 4},
-		{X: float64(screen.Bounds().Dx()) / 4, Y: float64(screen.Bounds().Dy()) * 3 / 4},
-		{X: float64(screen.Bounds().Dx()) * 3 / 4, Y: float64(screen.Bounds().Dy()) * 3 / 4},
-	}
-
-	for _, pos := range enemyPositions {
-		angle := pos.Angle()
-		r.DrawCircle(screen, pos, 15, r.config.ColorPalette.EnemyStandard)
-
-		// Draw direction indicator
-		dirX := pos.X + math.Cos(angle)*18
-		dirY := pos.Y + math.Sin(angle)*18
-		r.DrawLine(
-			screen,
-			pos,
-			common.Vector2{X: dirX, Y: dirY},
-			r.config.LineThickness,
-			r.config.ColorPalette.UIForeground,
-		)
-
-		// Draw health bar
-		healthBarWidth := 30.0
-		healthBarHeight := 4.0
-		healthBarPos := common.Vector2{
-			X: pos.X - healthBarWidth/2,
-			Y: pos.Y - 25,
-		}
-		r.DrawHealthBar(screen, healthBarPos, healthBarWidth, healthBarHeight, 0.7)
-	}
-
-	// Draw some projectiles
-	projectilePositions := []common.Vector2{
-		{X: playerPos.X + 100, Y: playerPos.Y},
-		{X: playerPos.X - 50, Y: playerPos.Y + 120},
-		{X: playerPos.X + 70, Y: playerPos.Y - 80},
-	}
-
-	for _, pos := range projectilePositions {
-		r.DrawCircle(screen, pos, 5, r.config.ColorPalette.PlayerBullet)
-	}
+	// Clear buffers
+	r.worldBuffer.Clear()
+	r.worldBuffer.Fill(r.config.ColorPalette.UIBackground)
+	r.uiBuffer.Clear()
 }
 
-// DrawScene renders a complete game scene with background, entities and UI
-func (r *Renderer) DrawScene(screen *ebiten.Image, entities []interface{}, ui interface{}) {
-	// Clear the screen with background color
-	screen.Fill(r.config.ColorPalette.UIBackground)
+func (r *Renderer) EndFrame(screen *ebiten.Image) {
+	// Get camera information
+	camZoom := r.camera.GetZoom()
+	camRotation := r.camera.GetRotation()
 
-	// Draw background elements (if any)
-	r.drawBackground(screen)
+	// Get buffer dimensions
+	bufferWidth := float64(r.worldBuffer.Bounds().Dx())
+	bufferHeight := float64(r.worldBuffer.Bounds().Dy())
 
-	// Draw all entities
-	//for _, entity := range entities {
-	//	// Type switch based on entity type
-	//	// This would handle different entity types when implemented
-	//}
+	// Draw world buffer with camera transform
+	op := &ebiten.DrawImageOptions{}
 
-	// Draw UI elements
-	r.drawUI(screen, ui)
-}
+	// 1. Center the buffer around camera position
+	op.GeoM.Translate(-bufferWidth/2, -bufferHeight/2)
 
-// drawBackground renders background elements
-func (r *Renderer) drawBackground(screen *ebiten.Image) {
-	// Draw grid or environment elements
-	// For now, we'll leave it empty
-}
-
-// drawUI renders user interface elements
-func (r *Renderer) drawUI(screen *ebiten.Image, ui interface{}) {
-	// Render UI components when implemented
-}
-
-// DrawBullet draws a projectile
-func (r *Renderer) DrawBullet(screen *ebiten.Image, position common.Vector2, direction common.Vector2,
-	radius float64, isPlayerBullet bool) {
-	// Choose color based on bullet owner
-	var bulletColor color.RGBA
-	if isPlayerBullet {
-		bulletColor = r.config.ColorPalette.PlayerBullet
-	} else {
-		bulletColor = r.config.ColorPalette.EnemyBullet
+	// 2. Apply rotation if needed
+	if camRotation != 0 {
+		op.GeoM.Rotate(camRotation)
 	}
 
-	// Draw the bullet
-	r.DrawCircle(screen, position, radius, bulletColor)
+	// 3. Apply zoom
+	op.GeoM.Scale(camZoom, camZoom)
 
-	// Draw trail effect (optional)
-	trailLength := radius * 2
-	trailEnd := common.Vector2{
-		X: position.X - direction.X*trailLength,
-		Y: position.Y - direction.Y*trailLength,
-	}
+	// 4. Move to screen center
+	screenWidth := float64(screen.Bounds().Dx())
+	screenHeight := float64(screen.Bounds().Dy())
+	op.GeoM.Translate(screenWidth/2, screenHeight/2)
 
-	// Use a semi-transparent version of bullet color for trail
-	trailColor := bulletColor
-	trailColor.A = 128
+	// Draw the world buffer
+	screen.DrawImage(r.worldBuffer, op)
 
-	r.DrawLine(screen, position, trailEnd, radius*0.8, trailColor)
+	// Draw UI directly (no transform)
+	screen.DrawImage(r.uiBuffer, nil)
 }
 
-// DrawEnemy renders an enemy with appropriate indicators
-func (r *Renderer) DrawEnemy(screen *ebiten.Image, position common.Vector2,
-	radius float64, rotation float64, health float64,
-	enemyType int) {
-	// Choose color based on enemy type
-	var enemyColor color.RGBA
-	switch enemyType {
-	case 1: // Standard
-		enemyColor = r.config.ColorPalette.EnemyStandard
-	case 2: // Elite
-		enemyColor = r.config.ColorPalette.EnemyElite
-	case 3: // Boss
-		enemyColor = r.config.ColorPalette.EnemyBoss
-	default:
-		enemyColor = r.config.ColorPalette.EnemyStandard
-	}
+// worldToBuffer converts world coordinates to buffer coordinates
+func (r *Renderer) worldToBuffer(x, y float64) (float64, float64) {
+	camPos := r.camera.GetCenter()
+	bufferWidth := float64(r.worldBuffer.Bounds().Dx())
+	bufferHeight := float64(r.worldBuffer.Bounds().Dy())
 
-	// Draw enemy body
-	r.DrawCircle(screen, position, radius, enemyColor)
-
-	// Draw direction indicator
-	indicatorLength := radius * 1.2
-	dirX := position.X + math.Cos(rotation)*indicatorLength
-	dirY := position.Y + math.Sin(rotation)*indicatorLength
-
-	r.DrawLine(
-		screen,
-		position,
-		common.Vector2{X: dirX, Y: dirY},
-		r.config.LineThickness,
-		r.config.ColorPalette.UIForeground,
-	)
-
-	// Draw health bar
-	healthBarWidth := radius * 2
-	healthBarHeight := 4.0
-	healthBarPos := common.Vector2{
-		X: position.X - healthBarWidth/2,
-		Y: position.Y - radius - 10,
-	}
-	r.DrawHealthBar(screen, healthBarPos, healthBarWidth, healthBarHeight, health)
+	// Offset coordinates relative to camera position
+	return x - camPos.X + bufferWidth/2, y - camPos.Y + bufferHeight/2
 }
 
 // DrawCircle draws a filled circle
 func (r *Renderer) DrawCircle(screen *ebiten.Image, position common.Vector2, radius float64, fill color.RGBA) {
+	bufferX, bufferY := r.worldToBuffer(position.X, position.Y)
+
 	vector.DrawFilledCircle(
-		screen,
-		float32(position.X),
-		float32(position.Y),
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
 		float32(radius),
 		fill,
 		r.config.AntiAliasing,
@@ -321,19 +213,21 @@ func (r *Renderer) DrawCircle(screen *ebiten.Image, position common.Vector2, rad
 
 // DrawCircleOutline draws a circle outline
 func (r *Renderer) DrawCircleOutline(screen *ebiten.Image, position common.Vector2, radius float64, lineWidth float64, stroke color.RGBA) {
+	bufferX, bufferY := r.worldToBuffer(position.X, position.Y)
+
 	// No built-in circle outline in Ebiten, use strokedCircle
 	numSegments := 24 // Adjust based on radius for better performance
 	for i := 0; i < numSegments; i++ {
-		angle1 := float64(i) / float64(numSegments) * 2 * 3.14159
-		angle2 := float64(i+1) / float64(numSegments) * 2 * 3.14159
+		angle1 := float64(i) / float64(numSegments) * 2 * math.Pi
+		angle2 := float64(i+1) / float64(numSegments) * 2 * math.Pi
 
-		x1 := position.X + math.Cos(angle1)*radius
-		y1 := position.Y + math.Sin(angle1)*radius
-		x2 := position.X + math.Cos(angle2)*radius
-		y2 := position.Y + math.Sin(angle2)*radius
+		x1 := bufferX + math.Cos(angle1)*radius
+		y1 := bufferY + math.Sin(angle1)*radius
+		x2 := bufferX + math.Cos(angle2)*radius
+		y2 := bufferY + math.Sin(angle2)*radius
 
 		vector.StrokeLine(
-			screen,
+			r.worldBuffer,
 			float32(x1),
 			float32(y1),
 			float32(x2),
@@ -347,10 +241,12 @@ func (r *Renderer) DrawCircleOutline(screen *ebiten.Image, position common.Vecto
 
 // DrawRect draws a filled rectangle
 func (r *Renderer) DrawRect(screen *ebiten.Image, rect common.Rectangle, fill color.RGBA) {
+	bufferX, bufferY := r.worldToBuffer(rect.Pos.X, rect.Pos.Y)
+
 	vector.DrawFilledRect(
-		screen,
-		float32(rect.Pos.X),
-		float32(rect.Pos.Y),
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
 		float32(rect.Size.X),
 		float32(rect.Size.Y),
 		fill,
@@ -360,15 +256,14 @@ func (r *Renderer) DrawRect(screen *ebiten.Image, rect common.Rectangle, fill co
 
 // DrawRectOutline draws a rectangle outline
 func (r *Renderer) DrawRectOutline(screen *ebiten.Image, rect common.Rectangle, lineWidth float64, stroke color.RGBA) {
-	x, y := rect.Pos.X, rect.Pos.Y
-	w, h := rect.Size.X, rect.Size.Y
+	bufferX, bufferY := r.worldToBuffer(rect.Pos.X, rect.Pos.Y)
 
 	vector.StrokeRect(
-		screen,
-		float32(x),
-		float32(y),
-		float32(w),
-		float32(h),
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
+		float32(rect.Size.X),
+		float32(rect.Size.Y),
 		float32(lineWidth),
 		stroke,
 		r.config.AntiAliasing,
@@ -377,12 +272,15 @@ func (r *Renderer) DrawRectOutline(screen *ebiten.Image, rect common.Rectangle, 
 
 // DrawLine draws a line
 func (r *Renderer) DrawLine(screen *ebiten.Image, start, end common.Vector2, lineWidth float64, stroke color.RGBA) {
+	startX, startY := r.worldToBuffer(start.X, start.Y)
+	endX, endY := r.worldToBuffer(end.X, end.Y)
+
 	vector.StrokeLine(
-		screen,
-		float32(start.X),
-		float32(start.Y),
-		float32(end.X),
-		float32(end.Y),
+		r.worldBuffer,
+		float32(startX),
+		float32(startY),
+		float32(endX),
+		float32(endY),
 		float32(lineWidth),
 		stroke,
 		r.config.AntiAliasing,
@@ -391,123 +289,135 @@ func (r *Renderer) DrawLine(screen *ebiten.Image, start, end common.Vector2, lin
 
 // DrawHealthBar draws a health bar
 func (r *Renderer) DrawHealthBar(screen *ebiten.Image, position common.Vector2, width, height float64, percent float64) {
+	bufferX, bufferY := r.worldToBuffer(position.X, position.Y)
 	colors := r.config.ColorPalette
 
 	// Background
-	barRect := common.Rectangle{
-		Pos:  common.Vector2{X: position.X, Y: position.Y},
-		Size: common.Vector2{X: width, Y: height},
-	}
-	r.DrawRect(screen, barRect, colors.HealthBarBG)
+	vector.DrawFilledRect(
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
+		float32(width),
+		float32(height),
+		colors.HealthBarBG,
+		r.config.AntiAliasing,
+	)
 
 	// Health fill
 	fillWidth := width * percent
 	if fillWidth > 0 {
-		fillRect := common.Rectangle{
-			Pos:  common.Vector2{X: position.X, Y: position.Y},
-			Size: common.Vector2{X: fillWidth, Y: height},
-		}
-		r.DrawRect(screen, fillRect, colors.HealthBarFill)
+		vector.DrawFilledRect(
+			r.worldBuffer,
+			float32(bufferX),
+			float32(bufferY),
+			float32(fillWidth),
+			float32(height),
+			colors.HealthBarFill,
+			r.config.AntiAliasing,
+		)
 	}
 }
 
 // DrawPlayerCharacter draws the player with rotation
 func (r *Renderer) DrawPlayerCharacter(screen *ebiten.Image, position common.Vector2, rotation float64, radius float64) {
+	bufferX, bufferY := r.worldToBuffer(position.X, position.Y)
 	colors := r.config.ColorPalette
 
 	// Draw player body
-	r.DrawCircle(screen, position, radius, colors.PlayerBody)
+	vector.DrawFilledCircle(
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
+		float32(radius),
+		colors.PlayerBody,
+		r.config.AntiAliasing,
+	)
 
 	// Draw direction indicator
 	indicatorLength := radius * 1.2
-	dirX := position.X + math.Cos(rotation)*indicatorLength
-	dirY := position.Y + math.Sin(rotation)*indicatorLength
+	dirX := bufferX + math.Cos(rotation)*indicatorLength
+	dirY := bufferY + math.Sin(rotation)*indicatorLength
 
-	r.DrawLine(
-		screen,
-		position,
-		common.Vector2{X: dirX, Y: dirY},
-		r.config.LineThickness,
+	vector.StrokeLine(
+		r.worldBuffer,
+		float32(bufferX),
+		float32(bufferY),
+		float32(dirX),
+		float32(dirY),
+		float32(r.config.LineThickness),
 		colors.PlayerOutline,
+		r.config.AntiAliasing,
 	)
 }
 
 // DrawAimLine draws the auto-aim targeting line
 func (r *Renderer) DrawAimLine(screen *ebiten.Image, start common.Vector2, direction common.Vector2, length float64) {
-	end := common.Vector2{
-		X: start.X + direction.X*length,
-		Y: start.Y + direction.Y*length,
-	}
+	startX, startY := r.worldToBuffer(start.X, start.Y)
+	endX := startX + direction.X*length
+	endY := startY + direction.Y*length
 
-	r.DrawLine(
-		screen,
-		start,
-		end,
-		r.config.LineThickness*0.5,
+	vector.StrokeLine(
+		r.worldBuffer,
+		float32(startX),
+		float32(startY),
+		float32(endX),
+		float32(endY),
+		float32(r.config.LineThickness*0.5),
 		r.config.ColorPalette.PlayerAimLine,
+		r.config.AntiAliasing,
 	)
 }
 
-// internal/game/rendering/renderer.go
-
 // DrawGrid draws a reference grid that follows camera transformations
-func (r *Renderer) DrawGrid(screen *ebiten.Image, cam *camera.Camera) {
-	gridColor := color.RGBA{50, 50, 60, 80}
+func (r *Renderer) DrawGrid(screen *ebiten.Image) {
+	viewport := r.camera.GetViewport()
 	gridSpacing := 100.0
+	gridColor := color.RGBA{50, 50, 60, 80}
 
-	// Get the camera's center position
-	center := cam.GetCenter()
-
-	// Get screen dimensions
-	screenW := float64(screen.Bounds().Dx())
-	screenH := float64(screen.Bounds().Dy())
-
-	// Calculate the first grid line positions before the viewport edge
-	startX := center.X - screenW/2 - math.Mod(center.X, gridSpacing) - gridSpacing
-	startY := center.Y - screenH/2 - math.Mod(center.Y, gridSpacing) - gridSpacing
-
-	// Calculate how many lines needed to cover screen
-	numLinesX := int(screenW/gridSpacing) + 3 // +3 to ensure coverage
-	numLinesY := int(screenH/gridSpacing) + 3
+	// Calculate grid lines needed for current view
+	startX := math.Floor(viewport.Pos.X/gridSpacing) * gridSpacing
+	startY := math.Floor(viewport.Pos.Y/gridSpacing) * gridSpacing
+	endX := viewport.Pos.X + viewport.Size.X + gridSpacing
+	endY := viewport.Pos.Y + viewport.Size.Y + gridSpacing
 
 	// Draw vertical lines
-	for i := 0; i < numLinesX; i++ {
-		worldX := startX + float64(i)*gridSpacing
-		lineStart := cam.WorldToScreen(common.Vector2{X: worldX, Y: center.Y - screenH/2 - gridSpacing})
-		lineEnd := cam.WorldToScreen(common.Vector2{X: worldX, Y: center.Y + screenH/2 + gridSpacing})
+	for x := startX; x <= endX; x += gridSpacing {
+		bufferX, _ := r.worldToBuffer(x, 0)
+		bufferStartY, _ := r.worldToBuffer(0, startY)
+		_, bufferEndY := r.worldToBuffer(0, endY)
 
 		vector.StrokeLine(
-			screen,
-			float32(lineStart.X),
-			float32(lineStart.Y),
-			float32(lineEnd.X),
-			float32(lineEnd.Y),
+			r.worldBuffer,
+			float32(bufferX),
+			float32(bufferStartY),
+			float32(bufferX),
+			float32(bufferEndY),
 			1,
 			gridColor,
-			false,
+			true,
 		)
 	}
 
 	// Draw horizontal lines
-	for i := 0; i < numLinesY; i++ {
-		worldY := startY + float64(i)*gridSpacing
-		lineStart := cam.WorldToScreen(common.Vector2{X: center.X - screenW/2 - gridSpacing, Y: worldY})
-		lineEnd := cam.WorldToScreen(common.Vector2{X: center.X + screenW/2 + gridSpacing, Y: worldY})
+	for y := startY; y <= endY; y += gridSpacing {
+		_, bufferY := r.worldToBuffer(0, y)
+		bufferStartX, _ := r.worldToBuffer(startX, 0)
+		bufferEndX, _ := r.worldToBuffer(endX, 0)
 
 		vector.StrokeLine(
-			screen,
-			float32(lineStart.X),
-			float32(lineStart.Y),
-			float32(lineEnd.X),
-			float32(lineEnd.Y),
+			r.worldBuffer,
+			float32(bufferStartX),
+			float32(bufferY),
+			float32(bufferEndX),
+			float32(bufferY),
 			1,
 			gridColor,
-			false,
+			true,
 		)
 	}
 }
 
-// DrawDebugInfo draws useful debug information when enabled
-func (r *Renderer) DrawDebugInfo(screen *ebiten.Image, debugInfo map[string]string) {
-	// Implement debug rendering if needed
+// DrawUIText draws text directly to the UI buffer (no transformation)
+func (r *Renderer) DrawUIText(text string, pos common.Vector2, col color.RGBA) {
+	ebitenutil.DebugPrintAt(r.uiBuffer, text, int(pos.X), int(pos.Y))
 }

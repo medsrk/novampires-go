@@ -46,6 +46,10 @@ func (w *DebugWindow) Draw() {
 			}
 		})
 
+		debug.CollapsingSection("Input", func() {
+			debug.LabeledValue("Key Pressed:", fmt.Sprintf("%v", w.manager.GetCurrentKey()), &imgui.Vec4{X: 0, Y: 1, Z: 0, W: 1})
+		})
+
 		// Movement vector section
 		debug.CollapsingSection("Movement Vector", func() {
 			dx, dy := w.manager.GetMovementVector()
@@ -54,7 +58,7 @@ func (w *DebugWindow) Draw() {
 
 		// Mouse position section
 		debug.CollapsingSection("Mouse Position", func() {
-			screenX, screenY := w.manager.GetMousePositionScreen()
+			screenX, screenY := w.manager.GetMousePosition()
 			worldX, worldY := w.manager.GetMousePositionWorld()
 			debug.MousePosition(screenX, screenY, worldX, worldY)
 		})

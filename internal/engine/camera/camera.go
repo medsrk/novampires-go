@@ -1,6 +1,7 @@
 package camera
 
 import (
+	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 	"novampires-go/internal/common"
 )
@@ -33,7 +34,7 @@ func DefaultConfig() *Config {
 
 // Camera handles viewport management and coordinate transformations
 type Camera struct {
-	// Current position in world coordinates (top-left corner)
+	// Current position in world coordinates (center of view)
 	pos common.Vector2
 
 	// Current target position the camera is following
@@ -68,15 +69,9 @@ func (c *Camera) Update() {
 
 	targetCenter := *c.target
 
-	// Calculate the desired camera position to center the target
-	desiredPos := common.Vector2{
-		X: targetCenter.X - c.config.ViewportSize.X/(2*c.zoom),
-		Y: targetCenter.Y - c.config.ViewportSize.Y/(2*c.zoom),
-	}
-
-	// Apply smoothing
-	c.pos.X += (desiredPos.X - c.pos.X) * c.config.Smoothing
-	c.pos.Y += (desiredPos.Y - c.pos.Y) * c.config.Smoothing
+	// Apply smoothing to move toward the target
+	c.pos.X += (targetCenter.X - c.pos.X) * c.config.Smoothing
+	c.pos.Y += (targetCenter.Y - c.pos.Y) * c.config.Smoothing
 
 	// Clamp to bounds if set
 	if c.config.Bounds != nil {
@@ -94,86 +89,90 @@ func (c *Camera) GetTarget() *common.Vector2 {
 	return c.target
 }
 
-// WorldToScreen converts world coordinates to screen coordinates
-func (c *Camera) WorldToScreen(worldPos common.Vector2) common.Vector2 {
-	// Translate relative to camera
-	x := worldPos.X - c.pos.X
-	y := worldPos.Y - c.pos.Y
+// GetTransform returns the transformation matrix for rendering
+// This method is kept for compatibility but the actual transform
+// calculation is now done in the renderer's EndFrame method
+func (c *Camera) GetTransform() ebiten.GeoM {
+	m := ebiten.GeoM{}
 
-	// Apply rotation
-	if c.rotation != 0 {
-		cos := math.Cos(-c.rotation)
-		sin := math.Sin(-c.rotation)
-		oldX := x
-		x = x*cos - y*sin
-		y = oldX*sin + y*cos
-	}
+	// The specific transform is now applied in the renderer
+	// to ensure proper coordination with the world buffer
 
-	// Apply zoom
-	x *= c.zoom
-	y *= c.zoom
-
-	return common.Vector2{X: x, Y: y}
+	return m
 }
 
 // ScreenToWorld converts screen coordinates to world coordinates
+//func (c *Camera) ScreenToWorld(screenPos common.Vector2) common.Vector2 {
+//	// Get a copy of our transform and invert it
+//	inv := c.GetTransform()
+//	if !inv.IsInvertible() {
+//		return common.Vector2{} // Return origin if not invertible
+//	}
+//
+//	inv.Invert()
+//
+//	// Apply inverse transform to screen coordinates
+//	worldX, worldY := inv.Apply(screenPos.X, screenPos.Y)
+//	return common.Vector2{X: worldX, Y: worldY}
+//}
+
 func (c *Camera) ScreenToWorld(screenPos common.Vector2) common.Vector2 {
-	// Unapply zoom
-	x := screenPos.X / c.zoom
-	y := screenPos.Y / c.zoom
+	// Important: This method needs to reverse exactly what happens in the renderer's EndFrame
 
-	// Unapply rotation
+	// 1. Get screen dimensions
+	screenWidth, screenHeight := c.config.ViewportSize.X, c.config.ViewportSize.Y
+
+	// 2. Create a transformation matrix that converts screen coords to world coords
+	m := ebiten.GeoM{}
+
+	// 3. First, we need to move from screen position to the center
+	m.Translate(-screenWidth/2, -screenHeight/2)
+
+	// 4. Apply the inverse of zoom and rotation
 	if c.rotation != 0 {
-		cos := math.Cos(c.rotation)
-		sin := math.Sin(c.rotation)
-		oldX := x
-		x = x*cos - y*sin
-		y = oldX*sin + y*cos
+		m.Rotate(-c.rotation) // Inverse rotation
 	}
+	m.Scale(1/c.zoom, 1/c.zoom) // Inverse zoom
 
-	// Translate back to world coordinates
-	return common.Vector2{
-		X: x + c.pos.X,
-		Y: y + c.pos.Y,
-	}
+	// 5. Move the origin to camera position (translating from screen center to camera pos)
+	m.Translate(c.pos.X, c.pos.Y)
+
+	// 6. Apply the transformation
+	worldX, worldY := m.Apply(screenPos.X, screenPos.Y)
+
+	return common.Vector2{X: worldX, Y: worldY}
 }
 
 // GetViewport returns the current viewport rectangle in world coordinates
 func (c *Camera) GetViewport() common.Rectangle {
-	topLeft := c.pos
-	size := common.Vector2{
-		X: c.config.ViewportSize.X / c.zoom,
-		Y: c.config.ViewportSize.Y / c.zoom,
+	halfWidth := c.config.ViewportSize.X / (2 * c.zoom)
+	halfHeight := c.config.ViewportSize.Y / (2 * c.zoom)
+
+	return common.Rectangle{
+		Pos: common.Vector2{
+			X: c.pos.X - halfWidth,
+			Y: c.pos.Y - halfHeight,
+		},
+		Size: common.Vector2{
+			X: halfWidth * 2,
+			Y: halfHeight * 2,
+		},
 	}
-	return common.Rectangle{Pos: topLeft, Size: size}
 }
 
-// GetCenter returns the center position of the camera in world coordinates
+// SetCenter explicitly sets the camera's position
+func (c *Camera) SetCenter(pos common.Vector2) {
+	c.pos = pos
+}
+
+// GetCenter returns the camera's center position
 func (c *Camera) GetCenter() common.Vector2 {
-	return common.Vector2{
-		X: c.pos.X + c.config.ViewportSize.X/(2*c.zoom),
-		Y: c.pos.Y + c.config.ViewportSize.Y/(2*c.zoom),
-	}
-}
-
-// SetCenter sets the camera position so that the given world coordinates are centered
-func (c *Camera) SetCenter(worldPos common.Vector2) {
-	c.pos = common.Vector2{
-		X: worldPos.X - c.config.ViewportSize.X/(2*c.zoom),
-		Y: worldPos.Y - c.config.ViewportSize.Y/(2*c.zoom),
-	}
+	return c.pos
 }
 
 // SetZoom sets the camera zoom level
 func (c *Camera) SetZoom(zoom float64) {
-	// Store current center
-	oldCenter := c.GetCenter()
-
-	// Update zoom
-	c.zoom = math.Max(0.1, zoom)
-
-	// Restore center position
-	c.SetCenter(oldCenter)
+	c.zoom = math.Max(0.1, zoom) // Prevent negative or zero zoom
 }
 
 // SetRotation sets the camera rotation in radians
@@ -191,47 +190,35 @@ func (c *Camera) GetRotation() float64 {
 	return c.rotation
 }
 
-// isInDeadzone checks if a point is within the camera's deadzone
-func (c *Camera) isInDeadzone(pos common.Vector2) bool {
-	// Create deadzone rectangle centered on camera
-	center := c.GetCenter()
-	deadzonePos := common.Vector2{
-		X: center.X - c.config.Deadzone.Size.X/2,
-		Y: center.Y - c.config.Deadzone.Size.Y/2,
-	}
-	deadzone := common.Rectangle{
-		Pos:  deadzonePos,
-		Size: c.config.Deadzone.Size,
-	}
-	return deadzone.Contains(pos)
-}
-
 // clampToBounds ensures the camera stays within the configured bounds
 func (c *Camera) clampToBounds() {
-	viewport := c.GetViewport()
 	bounds := c.config.Bounds
-
-	// Clamp horizontal position
-	if viewport.Size.X < bounds.Size.X {
-		if viewport.Pos.X < bounds.Pos.X {
-			c.pos.X = bounds.Pos.X
-		} else if viewport.Pos.X+viewport.Size.X > bounds.Pos.X+bounds.Size.X {
-			c.pos.X = bounds.Pos.X + bounds.Size.X - viewport.Size.X
-		}
-	} else {
-		// If viewport is larger than bounds, center it
-		c.pos.X = bounds.Pos.X + (bounds.Size.X-viewport.Size.X)/2
+	if bounds == nil {
+		return
 	}
 
-	// Clamp vertical position
-	if viewport.Size.Y < bounds.Size.Y {
-		if viewport.Pos.Y < bounds.Pos.Y {
-			c.pos.Y = bounds.Pos.Y
-		} else if viewport.Pos.Y+viewport.Size.Y > bounds.Pos.Y+bounds.Size.Y {
-			c.pos.Y = bounds.Pos.Y + bounds.Size.Y - viewport.Size.Y
-		}
+	// Calculate visible area at current zoom
+	halfWidth := c.config.ViewportSize.X / (2 * c.zoom)
+	halfHeight := c.config.ViewportSize.Y / (2 * c.zoom)
+
+	// Calculate allowed camera position range
+	minX := bounds.Pos.X + halfWidth
+	maxX := bounds.Pos.X + bounds.Size.X - halfWidth
+	minY := bounds.Pos.Y + halfHeight
+	maxY := bounds.Pos.Y + bounds.Size.Y - halfHeight
+
+	// Handle case where viewport is larger than bounds
+	if halfWidth*2 > bounds.Size.X {
+		// Center horizontally
+		c.pos.X = bounds.Pos.X + bounds.Size.X/2
 	} else {
-		// If viewport is larger than bounds, center it
-		c.pos.Y = bounds.Pos.Y + (bounds.Size.Y-viewport.Size.Y)/2
+		c.pos.X = math.Max(minX, math.Min(maxX, c.pos.X))
+	}
+
+	if halfHeight*2 > bounds.Size.Y {
+		// Center vertically
+		c.pos.Y = bounds.Pos.Y + bounds.Size.Y/2
+	} else {
+		c.pos.Y = math.Max(minY, math.Min(maxY, c.pos.Y))
 	}
 }

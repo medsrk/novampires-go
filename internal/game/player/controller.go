@@ -98,7 +98,7 @@ func (c *Controller) GetAimVector() (float64, float64) {
 	// Get current mouse position in WORLD coordinates
 	mx, my := c.inputManager.GetMousePositionWorld()
 
-	// Try gamepad first
+	// Try gamepad first - this part remains unchanged
 	if dx, dy, ok := c.inputManager.GetGamepadAim(); ok {
 		c.usingGamepad = true
 		c.lastAimDx, c.lastAimDy = dx, dy // Store gamepad aim vector
@@ -111,7 +111,18 @@ func (c *Controller) GetAimVector() (float64, float64) {
 		c.lastMouseX, c.lastMouseY = mx, my
 
 		// Calculate the direction vector from player to mouse
-		aimDirection := common.Vector2{X: float64(mx), Y: float64(my)}.Sub(c.pos).Normalized()
+		mousePos := common.Vector2{X: float64(mx), Y: float64(my)}
+
+		// Get the vector from player to mouse
+		aimDirection := mousePos.Sub(c.pos)
+
+		// Normalize the vector to get a direction
+		if aimDirection.MagnitudeSquared() > 0 {
+			aimDirection = aimDirection.Normalized()
+		} else {
+			// If mouse is exactly on player position, keep last direction
+			aimDirection = common.Vector2{X: c.lastAimDx, Y: c.lastAimDy}
+		}
 
 		c.lastAimDx, c.lastAimDy = aimDirection.X, aimDirection.Y // Store NORMALIZED direction
 		return c.lastAimDx, c.lastAimDy

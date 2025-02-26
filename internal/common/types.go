@@ -154,8 +154,8 @@ type InputProvider interface {
 	// GetMovementVector returns the normalized movement vector from input
 	GetMovementVector() (float64, float64)
 
-	// GetMousePositionScreen returns the current mouse position in screen coordinates
-	GetMousePositionScreen() (int, int)
+	// GetMousePosition returns the current mouse position in screen coordinates
+	GetMousePosition() (int, int)
 
 	// GetMousePositionWorld returns the current mouse position in world coordinates
 	GetMousePositionWorld() (int, int)

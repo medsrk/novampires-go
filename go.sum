@@ -4,6 +4,8 @@ github.com/ebitengine/hideconsole v1.0.0 h1:5J4U0kXF+pv/DhiXt5/lTz0eO5ogJ1iXb8Yj
 github.com/ebitengine/hideconsole v1.0.0/go.mod h1:hTTBTvVYWKBuxPr7peweneWdkUwEuHuB3C1R/ielR1A=
 github.com/ebitengine/purego v0.8.0 h1:JbqvnEzRvPpxhCJzJJ2y0RbiZ8nyjccVUrSM3q+GvvE=
 github.com/ebitengine/purego v0.8.0/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
+github.com/ebitengine/purego v0.8.2 h1:jPPGWs2sZ1UgOSgD2bClL0MJIqu58nOmIcBuXr62z1I=
+github.com/ebitengine/purego v0.8.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 github.com/gabstv/cimgui-go v0.0.0-20231031221758-68bd718f94cc h1:wOd6OYf4MjbBpSuWizOD/5YrDhbRiGuS4j7gDy/LEoI=
 github.com/gabstv/cimgui-go v0.0.0-20231031221758-68bd718f94cc/go.mod h1:YFpLc8WCZGvPU5UBGs9H7XZdTpUe3Ae5jWaDSDwv94s=
 github.com/gabstv/ebiten-imgui/v3 v3.0.0 h1:Ya2E8q57YiqDIEmJcdSeqO8SZJdwz9s9nxu/qhFRjX0=

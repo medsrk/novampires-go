@@ -72,7 +72,7 @@ func (w *DebugWindow) Draw() {
 		// Transform info
 		debug.CollapsingSection("Transform", func() {
 			// Zoom control
-			if imgui.SliderFloat("Zoom", (*float32)(w.zoomPtr), 0.1, 5.0) {
+			if imgui.SliderFloat("Zoom", (*float32)(w.zoomPtr), 0.2, 5.0) {
 				w.camera.SetZoom(float64(w.zoom))
 			}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	imgui "github.com/gabstv/cimgui-go"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"novampires-go/internal/common"
 	"sort"
 )
@@ -219,6 +220,14 @@ func (w *KeyBindingEditorWindow) drawKeyboardBindings() {
 					w.oldKey = v.Key
 				}
 			}
+
+			// Only check for right click if hovering this specific button
+			if imgui.IsItemHovered() && imgui.IsMouseClickedBool(imgui.MouseButtonRight) {
+				fmt.Printf("Right clicked on binding: %v for action: %v\n", b.displayName, action)
+				w.manager.Unbind(b.input)
+				w.needsRefresh = true
+			}
+
 			imgui.PopID()
 		}
 
@@ -366,33 +375,83 @@ func (w *KeyBindingEditorWindow) drawGamepadBindings() {
 }
 
 func (w *KeyBindingEditorWindow) listenForKeyPress() {
-	for key := ebiten.KeyA; key <= ebiten.KeyMax; key++ {
-		if ebiten.IsKeyPressed(key) {
-			if int(key) > 0 && int(key) < int(ebiten.KeyMax) {
+	// For combo key detection
+	if ebiten.IsKeyPressed(ebiten.KeyControl) {
+		// Wait for a non-modifier key to be newly pressed
+		for key := ebiten.KeyA; key <= ebiten.KeyMax; key++ {
+			if key != ebiten.KeyControl && inpututil.IsKeyJustPressed(key) {
 				if w.rebindMode {
-					fmt.Printf("Rebinding key - Old: %v New: %v Action: %v\n", w.oldKey, key, w.selectedAction)
-					// Find and remove old binding
+					// Remove old binding
 					for input, act := range w.manager.bindings {
-						if keyInput, ok := input.(KeyboardKey); ok {
-							if keyInput.Key == w.oldKey && act == w.selectedAction {
-								w.manager.Unbind(input)
-								break
+						if act == w.selectedAction {
+							switch v := input.(type) {
+							case KeyboardKey:
+								if v.Key == w.oldKey {
+									w.manager.Unbind(input)
+								}
+							case ComboKey:
+								if v.Key == w.oldKey {
+									w.manager.Unbind(input)
+								}
 							}
 						}
 					}
-					// Add new binding
-					w.manager.Bind(KeyboardKey{Key: key}, w.selectedAction)
-				} else {
-					fmt.Printf("Adding new binding - Key: %v Action: %v\n", key, w.selectedAction)
-					w.manager.Bind(KeyboardKey{Key: key}, w.selectedAction)
 				}
+
+				// Add new combo binding
+				w.manager.Bind(ComboKey{
+					Modifier: ebiten.KeyControl,
+					Key:      key,
+				}, w.selectedAction)
+
 				w.needsRefresh = true
+				w.listening = false
+				w.rebindMode = false
+				return
 			}
-			w.listening = false
-			w.rebindMode = false
-			break
+		}
+	} else {
+		// Regular key binding
+		for key := ebiten.KeyA; key <= ebiten.KeyMax; key++ {
+			if inpututil.IsKeyJustPressed(key) {
+				if w.rebindMode {
+					// Remove old binding
+					for input, act := range w.manager.bindings {
+						if act == w.selectedAction {
+							switch v := input.(type) {
+							case KeyboardKey:
+								if v.Key == w.oldKey {
+									w.manager.Unbind(input)
+								}
+							case ComboKey:
+								if v.Key == w.oldKey {
+									w.manager.Unbind(input)
+								}
+							}
+						}
+					}
+				}
+
+				// Add new regular binding
+				w.manager.Bind(KeyboardKey{Key: key}, w.selectedAction)
+
+				w.needsRefresh = true
+				w.listening = false
+				w.rebindMode = false
+				return
+			}
 		}
 	}
+}
+
+// Helper function to check if any non-modifier key is pressed
+func (w *KeyBindingEditorWindow) anyNonModifierKeyPressed() bool {
+	for key := ebiten.KeyA; key <= ebiten.KeyMax; key++ {
+		if key != ebiten.KeyControl && ebiten.IsKeyPressed(key) {
+			return true
+		}
+	}
+	return false
 }
 
 // Debug window methods

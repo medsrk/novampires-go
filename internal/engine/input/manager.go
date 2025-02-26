@@ -315,15 +315,21 @@ func (m *Manager) GetMovementVector() (float64, float64) {
 }
 
 func (m *Manager) GetMousePositionWorld() (int, int) {
-	x, y := ebiten.CursorPosition()
-	if m.camera != nil {
-		worldPos := m.camera.ScreenToWorld(common.Vector2{X: float64(x), Y: float64(y)})
-		return int(worldPos.X), int(worldPos.Y)
+	if m.camera == nil {
+		return m.GetMousePosition()
 	}
-	return x, y
+
+	// Get screen mouse position
+	screenX, screenY := m.GetMousePosition()
+	screenPos := common.Vector2{X: float64(screenX), Y: float64(screenY)}
+
+	// Convert to world position using camera
+	worldPos := m.camera.ScreenToWorld(screenPos)
+
+	return int(worldPos.X), int(worldPos.Y)
 }
 
-func (m *Manager) GetMousePositionScreen() (int, int) {
+func (m *Manager) GetMousePosition() (int, int) {
 	return ebiten.CursorPosition()
 }
 
@@ -376,6 +382,15 @@ func normalizeVector(x, y float64) (float64, float64) {
 		}
 	}
 	return x, y
+}
+
+func (m *Manager) GetCurrentKey() string {
+	for k := ebiten.Key(0); k <= ebiten.KeyMax; k++ {
+		if ebiten.IsKeyPressed(k) {
+			return k.String()
+		}
+	}
+	return ""
 }
 
 func (m *Manager) CreateDebugWindow() *DebugWindow {
