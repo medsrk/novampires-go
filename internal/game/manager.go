@@ -2,13 +2,15 @@ package game
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"log"
 	"novampires-go/internal/common"
 	"novampires-go/internal/engine/camera"
 	"novampires-go/internal/engine/debug"
 	"novampires-go/internal/engine/input"
+	"novampires-go/internal/engine/rendering"
 	"novampires-go/internal/game/config"
 	"novampires-go/internal/game/player"
-	"novampires-go/internal/game/rendering"
 )
 
 // GameState represents the current state of the game
@@ -69,6 +71,13 @@ func NewGame(deps Dependencies) *Game {
 	}
 	controllerCfg := player.DefaultConfig()
 	g.playerController = player.NewController(deps.InputManager, startPos, controllerCfg)
+	// Set player sprite
+	playerSpritesheet, _, err := ebitenutil.NewImageFromFile("assets/doux.png")
+	if err != nil {
+		log.Printf("Failed to load player spritesheet: %v", err)
+	}
+	g.playerController.SetSpriteSheet(playerSpritesheet)
+	g.playerController.SetScale(3.0)
 
 	// Set up all debug windows
 	deps.DebugManager.AddWindow(deps.InputManager.CreateDebugWindow())  // Input debug window
@@ -154,7 +163,7 @@ func (g *Game) updatePlaying() error {
 	if g.activeScene != nil {
 		return g.activeScene.Update()
 	}
-	
+
 	// Check for pause
 	if g.deps.InputManager.JustPressed(common.ActionMenu) {
 		g.state = StatePaused

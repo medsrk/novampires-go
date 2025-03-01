@@ -1,8 +1,12 @@
 package player
 
 import (
+	"github.com/hajimehoshi/ebiten/v2"
+	"image"
 	"math"
 	"novampires-go/internal/common"
+	"novampires-go/internal/engine/sprite"
+	"time"
 )
 
 type Controller struct {
@@ -20,6 +24,15 @@ type Controller struct {
 	lastMouseY   int
 	lastAimDx    float64
 	lastAimDy    float64
+
+	// Sprite handling
+	sprite         *ebiten.Image
+	spriteSheet    *ebiten.Image
+	spriteScale    float64
+	animations     map[string]*sprite.Animation
+	currentAnim    string
+	lastUpdateTime time.Time
+	flipX          bool
 }
 
 type Config struct {
@@ -44,16 +57,84 @@ func DefaultConfig() Config {
 
 func NewController(inputManager common.InputProvider, initialPos common.Vector2, config Config) *Controller {
 	return &Controller{
-		inputManager: inputManager,
-		pos:          initialPos,
-		vel:          common.Vector2{},
-		rotation:     0,
-		config:       config,
-		autoAim:      true,
+		inputManager:   inputManager,
+		pos:            initialPos,
+		vel:            common.Vector2{},
+		rotation:       0,
+		config:         config,
+		autoAim:        true,
+		animations:     make(map[string]*sprite.Animation),
+		lastUpdateTime: time.Now(),
 	}
 }
 
+// SetSpriteSheet sets the sprite sheet for the player
+func (c *Controller) SetSpriteSheet(sheet *ebiten.Image) {
+	c.spriteSheet = sheet
+
+	// Safety check
+	if sheet == nil {
+		return
+	}
+
+	// Initialize animations map if it doesn't exist
+	if c.animations == nil {
+		c.animations = make(map[string]*sprite.Animation)
+	}
+
+	// Initialize animations if not already set up
+	// Create idle animation (first row of spritesheet)
+	idleFrames := []sprite.FrameData{
+		{SrcX: 0, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
+		{SrcX: 24, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
+		{SrcX: 48, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
+		{SrcX: 72, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
+	}
+	c.animations["idle"] = sprite.NewAnimation(idleFrames, true)
+
+	// Create walk animation (second row of spritesheet)
+	walkFrames := []sprite.FrameData{
+		{SrcX: 94, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
+		{SrcX: 118, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
+		{SrcX: 142, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
+		{SrcX: 166, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
+	}
+	c.animations["walk"] = sprite.NewAnimation(walkFrames, true)
+
+	// Start with idle animation
+	c.currentAnim = "idle"
+	if c.animations["idle"] != nil {
+		c.animations["idle"].Reset()
+	}
+
+	// Initialize the sprite with the first frame
+	if c.animations["idle"] != nil {
+		frame := c.animations["idle"].GetCurrentFrame()
+		rect := image.Rect(
+			frame.SrcX,
+			frame.SrcY,
+			frame.SrcX+frame.SrcWidth,
+			frame.SrcY+frame.SrcHeight,
+		)
+		c.sprite = c.spriteSheet.SubImage(rect).(*ebiten.Image)
+	} else {
+		// Fallback to full spritesheet if for some reason idle animation is nil
+		c.sprite = c.spriteSheet
+	}
+}
+
+func (c *Controller) SetSpriteSheetScale(scale float64) {
+	c.spriteScale = scale
+}
+
+// Update method now handles sprite animation updates
 func (c *Controller) Update(targets []common.TargetInfo) {
+	// Calculate delta time for animation updates
+	currentTime := time.Now()
+	deltaTime := currentTime.Sub(c.lastUpdateTime)
+	c.lastUpdateTime = currentTime
+
+	// Update movement and aiming as before
 	c.updateMovement()
 	c.updateAiming(targets)
 
@@ -61,12 +142,18 @@ func (c *Controller) Update(targets []common.TargetInfo) {
 	if c.inputManager.JustPressed(common.ActionAutoAttack) {
 		c.autoAim = !c.autoAim
 	}
+
+	// Update animations
+	c.updateAnimation(deltaTime)
 }
 
 func (c *Controller) updateMovement() {
 	dx, dy := c.inputManager.GetMovementVector()
 	inputVec := common.Vector2{X: dx, Y: dy}
 	inputMagnitude := inputVec.Magnitude()
+
+	// Store previous velocity for animation state changes
+	//prevVel := c.vel
 
 	if inputMagnitude > 0 {
 		// Scale max speed by input magnitude
@@ -78,6 +165,13 @@ func (c *Controller) updateMovement() {
 		// Cap at the scaled max speed
 		if currentSpeed > targetSpeed {
 			c.vel = c.vel.Normalized().Scale(targetSpeed)
+		}
+
+		// Update flip direction based on movement
+		if dx < 0 {
+			c.flipX = true
+		} else if dx > 0 {
+			c.flipX = false
 		}
 	} else {
 		currentSpeed := c.vel.Magnitude()
@@ -165,6 +259,68 @@ func (c *Controller) updateAiming(targets []common.TargetInfo) {
 	}
 }
 
+// updateAnimation handles sprite animation based on player state
+func (c *Controller) updateAnimation(deltaTime time.Duration) {
+	// Safety check - don't attempt to update animations if they're not initialized
+	if c.spriteSheet == nil || len(c.animations) == 0 || c.animations["idle"] == nil {
+		return // No animations to update
+	}
+
+	// Determine animation state based on player movement
+	newAnim := c.currentAnim
+
+	// If there's no current animation, default to idle
+	if newAnim == "" {
+		newAnim = "idle"
+	}
+
+	// If player is attacking, prioritize attack animation
+	if c.inputManager.IsPressed(common.ActionAutoAttack) {
+		attackAnim, hasAttack := c.animations["attack"]
+		if hasAttack && (newAnim != "attack" || attackAnim.IsFinished()) {
+			newAnim = "attack"
+		}
+	} else if c.vel.MagnitudeSquared() > 0.1 {
+		// Player is moving
+		if _, hasWalk := c.animations["walk"]; hasWalk {
+			newAnim = "walk"
+		}
+	} else {
+		// Player is idle
+		if _, hasIdle := c.animations["idle"]; hasIdle {
+			newAnim = "idle"
+		}
+	}
+
+	// Change animation if state changed
+	if newAnim != c.currentAnim {
+		c.currentAnim = newAnim
+		if anim, exists := c.animations[newAnim]; exists && anim != nil {
+			anim.Reset()
+		}
+	}
+
+	// Update the current animation
+	if anim, exists := c.animations[c.currentAnim]; exists && anim != nil {
+		anim.Update(deltaTime)
+	}
+
+	// Update the sprite frame based on current animation
+	if anim, exists := c.animations[c.currentAnim]; exists && anim != nil {
+		frame := anim.GetCurrentFrame()
+
+		// Create a subimage from the sprite sheet
+		rect := image.Rect(
+			frame.SrcX,
+			frame.SrcY,
+			frame.SrcX+frame.SrcWidth,
+			frame.SrcY+frame.SrcHeight,
+		)
+
+		c.sprite = c.spriteSheet.SubImage(rect).(*ebiten.Image)
+	}
+}
+
 func (c *Controller) GetPosition() common.Vector2 {
 	return c.pos
 }
@@ -177,6 +333,11 @@ func (c *Controller) GetRotation() float64 {
 	return c.rotation
 }
 
+// GetVelocity returns the current velocity vector
+func (c *Controller) GetVelocity() common.Vector2 {
+	return c.vel
+}
+
 // GetAimDirection returns the direction the player is aiming
 func (c *Controller) GetAimDirection() common.Vector2 {
 	return common.Vector2{X: math.Cos(c.rotation), Y: math.Sin(c.rotation)}.Normalized()
@@ -184,4 +345,77 @@ func (c *Controller) GetAimDirection() common.Vector2 {
 
 func (c *Controller) SetPosition(pos common.Vector2) {
 	c.pos = pos
+}
+
+// GetSprite returns the current sprite frame
+func (c *Controller) GetSprite() *ebiten.Image {
+	return c.sprite
+}
+
+// GetFlipX returns whether the sprite should be flipped horizontally
+func (c *Controller) GetFlipX() bool {
+	return c.flipX
+}
+
+// GetCurrentAnimation returns the name of the current animation
+func (c *Controller) GetCurrentAnimation() string {
+	return c.currentAnim
+}
+
+// PlayAnimation forces the player to play a specific animation
+// PlayAnimation forces the player to play a specific animation
+func (c *Controller) PlayAnimation(animName string) {
+	// Safety check - make sure animation exists and is initialized
+	if anim, exists := c.animations[animName]; exists && anim != nil {
+		c.currentAnim = animName
+		anim.Reset()
+	}
+}
+
+// GetCurrentFrame returns the current frame index of the active animation
+func (c *Controller) GetCurrentFrame() int {
+	if anim, exists := c.animations[c.currentAnim]; exists && anim != nil {
+		return anim.GetCurrentFrameInt()
+	}
+	return 0
+}
+
+// SetFrameRate changes the frame duration for all animations
+func (c *Controller) SetFrameRate(frameRate float32) {
+	// Convert frameRate (fps) to frame duration (ms)
+	frameDuration := int(1000.0 / frameRate)
+
+	// Update all animations
+	for _, anim := range c.animations {
+		for i := range anim.Frames {
+			anim.Frames[i].Duration = frameDuration
+		}
+	}
+}
+
+// SetScale sets the player sprite scale
+func (c *Controller) SetScale(scale float32) {
+	c.spriteScale = float64(scale)
+}
+
+// SetFlipX explicitly sets the horizontal flip state
+func (c *Controller) SetFlipX(flip bool) {
+	c.flipX = flip
+}
+
+// GetAnimationDuration returns the total duration of the current animation in ms
+func (c *Controller) GetAnimationDuration() float32 {
+	if anim, exists := c.animations[c.currentAnim]; exists {
+		totalDuration := 0
+		for _, frame := range anim.Frames {
+			totalDuration += frame.Duration
+		}
+		return float32(totalDuration)
+	}
+	return 0
+}
+
+// GetScale returns the current sprite scale
+func (c *Controller) GetScale() float64 {
+	return c.spriteScale
 }

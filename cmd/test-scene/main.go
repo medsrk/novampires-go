@@ -11,13 +11,14 @@ import (
 	"novampires-go/internal/engine/camera"
 	"novampires-go/internal/engine/debug"
 	"novampires-go/internal/engine/input"
+	"novampires-go/internal/engine/rendering"
 	"novampires-go/internal/game"
 	"novampires-go/internal/game/config"
-	"novampires-go/internal/game/rendering"
 	"runtime"
 	"time"
 
 	_ "github.com/ebitengine/purego"
+	_ "image/png"
 	_ "net/http/pprof"
 )
 
@@ -109,6 +110,7 @@ func (s *TestScene) Update() error {
 	return nil
 }
 
+// Update the Draw method in TestScene to use the player's scale
 func (s *TestScene) Draw(screen *ebiten.Image) {
 	deps := s.game.GetDependencies()
 	playerController := s.game.GetPlayerController()
@@ -134,9 +136,13 @@ func (s *TestScene) Draw(screen *ebiten.Image) {
 	// Draw player
 	playerPos := playerController.GetPosition()
 	playerRot := playerController.GetRotation()
+	playerSprite := playerController.GetSprite()
+	playerFlip := playerController.GetFlipX()
+	spriteScale := playerController.GetScale() // Get the player's scale setting
 	aimDir := playerController.GetAimDirection()
 
-	deps.Renderer.DrawPlayerCharacter(screen, playerPos, playerRot, 20)
+	// Use the proper scale when drawing the player sprite
+	deps.Renderer.DrawPlayerSprite(screen, playerSprite, playerPos, playerRot, spriteScale, playerFlip)
 	deps.Renderer.DrawAimLine(screen, playerPos, aimDir, 200)
 
 	// Draw UI

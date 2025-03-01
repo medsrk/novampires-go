@@ -135,6 +135,7 @@ const (
 	WindowInputDebug  = "Input Debug"
 	WindowBindingEdit = "Binding Editor"
 	WindowCameraDebug = "Camera Debug"
+	WindowSpriteDebug = "Sprite Debugger"
 )
 
 // InputProvider defines the interface for accessing input state
