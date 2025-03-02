@@ -6,6 +6,7 @@ import (
 	imgui "github.com/gabstv/cimgui-go"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"math"
 	"novampires-go/internal/common"
 	"novampires-go/internal/engine/debug"
 	"unsafe"
@@ -106,7 +107,7 @@ func (w *DebugWindow) Draw() {
 			// Frame rate slider
 			if imgui.SliderFloat("Frame Rate", (*float32)(w.frameRatePtr), 30.0, 300.0) {
 				// Convert frame rate to frame duration
-				frameDuration := int(1000.0 / w.frameRate)
+				frameDuration := int(100.0 / w.frameRate)
 
 				// Update all animations
 				for _, anim := range w.controller.animations {
@@ -120,6 +121,146 @@ func (w *DebugWindow) Draw() {
 			if anim, exists := w.controller.animations[w.controller.currentAnim]; exists {
 				imgui.Text(fmt.Sprintf("Current Frame: %d/%d", anim.GetCurrentFrameInt()+1, len(anim.Frames)))
 			}
+
+			// Is animation reversed
+			imgui.Text(fmt.Sprintf("Reversed: %v", w.controller.IsReversed()))
+
+			// Add this to the DebugWindow Draw method in player/debug.go
+
+			// Eye Controller Debug Section
+			debug.CollapsingSection("Eye Controller", func() {
+				// Get the eye controller from the player controller
+				eyeController := w.controller.eyeController
+
+				// Show current eye direction
+				directionNames := map[Direction]string{
+					LookingCenter:    "Center",
+					LookingRight:     "Right",
+					LookingUp:        "Up",
+					LookingDown:      "Down",
+					LookingUpRight:   "Up-Right",
+					LookingDownRight: "Down-Right",
+				}
+
+				dirName := "Unknown"
+				if name, exists := directionNames[eyeController.direction]; exists {
+					dirName = name
+				}
+
+				debug.LabeledValue("Eye Direction", dirName, nil)
+				debug.LabeledValue("Eye Flipped", fmt.Sprintf("%v", eyeController.flipX), nil)
+
+				// Blinking state
+				debug.LabeledValue("Is Blinking", fmt.Sprintf("%v", eyeController.isBlinking), nil)
+				debug.LabeledValue("Blink Timer", fmt.Sprintf("%d / %d", eyeController.blinkTimer, eyeController.blinkInterval), nil)
+
+				// Eye position
+				debug.LabeledValue("Eye Position", eyeController.position.String(), nil)
+
+				// Manual blink trigger button
+				if imgui.Button("Trigger Blink") {
+					eyeController.TriggerBlink()
+				}
+
+				// Testing buttons for setting eye direction manually
+				imgui.Separator()
+				imgui.Text("Test Eye Directions:")
+
+				// Basic directions
+				if imgui.Button("Center") {
+					eyeController.direction = LookingCenter
+					eyeController.flipX = false
+				}
+
+				imgui.SameLine()
+				if imgui.Button("Right") {
+					eyeController.direction = LookingRight
+					eyeController.flipX = false
+				}
+
+				imgui.SameLine()
+				if imgui.Button("Left") {
+					eyeController.direction = LookingRight
+					eyeController.flipX = true
+				}
+
+				// Row 2
+				if imgui.Button("Up") {
+					eyeController.direction = LookingUp
+					eyeController.flipX = false
+				}
+
+				imgui.SameLine()
+				if imgui.Button("Down") {
+					eyeController.direction = LookingDown
+					eyeController.flipX = false
+				}
+
+				// Diagonal rows
+				if imgui.Button("Up-Right") {
+					eyeController.direction = LookingUpRight
+					eyeController.flipX = false
+				}
+
+				imgui.SameLine()
+				if imgui.Button("Up-Left") {
+					eyeController.direction = LookingUpRight
+					eyeController.flipX = true
+				}
+
+				if imgui.Button("Down-Right") {
+					eyeController.direction = LookingDownRight
+					eyeController.flipX = false
+				}
+
+				imgui.SameLine()
+				if imgui.Button("Down-Left") {
+					eyeController.direction = LookingDownRight
+					eyeController.flipX = true
+				}
+
+				// Add manual aim angle test
+				imgui.Separator()
+
+				// Add buttons for preset angles to test
+				imgui.Text("Test Specific Angles:")
+
+				angleTests := []struct {
+					name  string
+					angle float64
+				}{
+					{"0° (Right)", 0},
+					{"45° (Down-Right)", math.Pi / 4},
+					{"90° (Down)", math.Pi / 2},
+					{"135° (Down-Left)", 3 * math.Pi / 4},
+					{"180° (Left)", math.Pi},
+					{"225° (Up-Left)", 5 * math.Pi / 4},
+					{"270° (Up)", 3 * math.Pi / 2},
+					{"315° (Up-Right)", 7 * math.Pi / 4},
+				}
+
+				// Display in two rows
+				for i, test := range angleTests {
+					if i > 0 && i%4 == 0 {
+						imgui.Spacing()
+					}
+
+					if imgui.Button(test.name) {
+						// Create a directional vector from this angle
+						testDir := common.Vector2{
+							X: math.Cos(test.angle),
+							Y: math.Sin(test.angle),
+						}
+
+						// Apply the direction to the eye controller
+						eyeController.UpdateLookDirection(testDir)
+					}
+
+					if i%4 != 3 && i < len(angleTests)-1 {
+						imgui.SameLine()
+					}
+				}
+			})
 		})
 	}
 	imgui.End()

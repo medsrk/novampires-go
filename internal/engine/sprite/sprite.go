@@ -25,6 +25,7 @@ type Animation struct {
 	// Current state
 	currentFrame int
 	elapsed      time.Duration
+	reversed     bool
 	finished     bool
 
 	// Mutex for concurrent access
@@ -43,6 +44,7 @@ func NewAnimation(frames []FrameData, loop bool) *Animation {
 		Loop:         loop,
 		currentFrame: 0,
 		elapsed:      0,
+		reversed:     false,
 		finished:     false,
 	}
 }
@@ -74,6 +76,28 @@ func CreateAnimationFromStrip(
 	return NewAnimation(frames, loop)
 }
 
+func NewAnimationWithSequence(baseFrames []FrameData, sequence []int, loop bool) *Animation {
+	// Safety check - don't create animations with no frames or sequence
+	if len(baseFrames) == 0 || len(sequence) == 0 {
+		return nil
+	}
+
+	// Create a new array of frames based on the sequence
+	sequencedFrames := make([]FrameData, len(sequence))
+	for i, idx := range sequence {
+		// Make sure we don't access an index out of bounds
+		if idx >= 0 && idx < len(baseFrames) {
+			sequencedFrames[i] = baseFrames[idx]
+		} else {
+			// If index is invalid, use the first frame as a fallback
+			sequencedFrames[i] = baseFrames[0]
+		}
+	}
+
+	// Create a new animation with the sequenced frames
+	return NewAnimation(sequencedFrames, loop)
+}
+
 // Update advances the animation based on elapsed time
 func (a *Animation) Update(dt time.Duration) {
 	a.mu.Lock()
@@ -85,19 +109,28 @@ func (a *Animation) Update(dt time.Duration) {
 
 	a.elapsed += dt
 
-	// Check if we need to advance to next frame
 	frameDuration := time.Duration(a.Frames[a.currentFrame].Duration) * time.Millisecond
 	if a.elapsed >= frameDuration {
 		a.elapsed -= frameDuration
-		a.currentFrame++
-
-		// Handle reaching the end of animation
-		if a.currentFrame >= len(a.Frames) {
-			if a.Loop {
-				a.currentFrame = 0
-			} else {
-				a.currentFrame = len(a.Frames) - 1
-				a.finished = true
+		if a.reversed {
+			a.currentFrame--
+			if a.currentFrame < 0 {
+				if a.Loop {
+					a.currentFrame = len(a.Frames) - 1
+				} else {
+					a.currentFrame = 0
+					a.finished = true
+				}
+			}
+		} else {
+			a.currentFrame++
+			if a.currentFrame >= len(a.Frames) {
+				if a.Loop {
+					a.currentFrame = 0
+				} else {
+					a.currentFrame = len(a.Frames) - 1
+					a.finished = true
+				}
 			}
 		}
 	}
@@ -111,6 +144,7 @@ func (a *Animation) Reset() {
 	a.currentFrame = 0
 	a.elapsed = 0
 	a.finished = false
+	a.reversed = false
 }
 
 // IsFinished returns whether the animation has finished
@@ -131,4 +165,16 @@ func (a *Animation) GetCurrentFrame() FrameData {
 
 func (a *Animation) GetCurrentFrameInt() int {
 	return a.currentFrame
+}
+
+func (a *Animation) Reverse() {
+	a.reversed = true
+}
+
+func (a *Animation) IsReversed() bool {
+	return a.reversed
+}
+
+func (a *Animation) SetDuration() {
+	
 }

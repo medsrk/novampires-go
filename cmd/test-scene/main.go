@@ -133,16 +133,40 @@ func (s *TestScene) Draw(screen *ebiten.Image) {
 		deps.Renderer.DrawHealthBar(screen, healthBarPos, target.Radius*2, 4.0, target.Priority/4.0)
 	}
 
-	// Draw player
+	// Draw player with layered sprites (body + eyes)
 	playerPos := playerController.GetPosition()
 	playerRot := playerController.GetRotation()
 	playerSprite := playerController.GetSprite()
+	playerEyeSprite := playerController.GetEyeSprite() // Get the eye sprite
+	playerEyePos := playerController.GetEyePosition()  // Get the eye position offset
 	playerFlip := playerController.GetFlipX()
-	spriteScale := playerController.GetScale() // Get the player's scale setting
+	spriteScale := playerController.GetScale()
 	aimDir := playerController.GetAimDirection()
 
-	// Use the proper scale when drawing the player sprite
-	deps.Renderer.DrawPlayerSprite(screen, playerSprite, playerPos, playerRot, spriteScale, playerFlip)
+	// flip sprite depending on aim direction
+	if aimDir.X < 0 {
+		playerFlip = true
+	} else {
+		playerFlip = false
+	}
+
+	// if face left, but moving right, reverse the animation
+	if playerFlip && playerController.GetVelocity().X > 0 {
+		playerController.ReverseAnimation()
+	}
+
+	// Use DrawLayeredPlayerSprite to draw both body and eyes
+	deps.Renderer.DrawLayeredPlayerSprite(
+		screen,
+		playerSprite,
+		playerEyeSprite,
+		playerPos,
+		playerEyePos,
+		playerRot,
+		spriteScale,
+		playerFlip,
+	)
+
 	deps.Renderer.DrawAimLine(screen, playerPos, aimDir, 200)
 
 	// Draw UI

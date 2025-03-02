@@ -77,7 +77,13 @@ func NewGame(deps Dependencies) *Game {
 		log.Printf("Failed to load player spritesheet: %v", err)
 	}
 	g.playerController.SetSpriteSheet(playerSpritesheet)
-	g.playerController.SetScale(3.0)
+	g.playerController.SetScale(1.0)
+
+	eyeSpritesheet, _, err := ebitenutil.NewImageFromFile("assets/doux-eyes.png")
+	if err != nil {
+		log.Printf("Failed to load eye spritesheet: %v", err)
+	}
+	g.playerController.SetEyeSpriteSheet(eyeSpritesheet)
 
 	// Set up all debug windows
 	deps.DebugManager.AddWindow(deps.InputManager.CreateDebugWindow())  // Input debug window

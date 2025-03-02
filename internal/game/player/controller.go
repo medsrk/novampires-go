@@ -26,11 +26,15 @@ type Controller struct {
 	lastAimDy    float64
 
 	// Sprite handling
-	sprite         *ebiten.Image
-	spriteSheet    *ebiten.Image
-	spriteScale    float64
-	animations     map[string]*sprite.Animation
-	currentAnim    string
+	sprite      *ebiten.Image
+	spriteSheet *ebiten.Image
+	spriteScale float64
+	animations  map[string]*sprite.Animation
+	currentAnim string
+
+	// eye sprite handling
+	eyeController *EyeController
+
 	lastUpdateTime time.Time
 	flipX          bool
 }
@@ -64,6 +68,7 @@ func NewController(inputManager common.InputProvider, initialPos common.Vector2,
 		config:         config,
 		autoAim:        true,
 		animations:     make(map[string]*sprite.Animation),
+		eyeController:  NewEyeController(),
 		lastUpdateTime: time.Now(),
 	}
 }
@@ -85,19 +90,21 @@ func (c *Controller) SetSpriteSheet(sheet *ebiten.Image) {
 	// Initialize animations if not already set up
 	// Create idle animation (first row of spritesheet)
 	idleFrames := []sprite.FrameData{
-		{SrcX: 0, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
-		{SrcX: 24, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
-		{SrcX: 48, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
-		{SrcX: 72, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 150},
+		{SrcX: 0, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 150},
+		{SrcX: 96, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 150},
+		{SrcX: 192, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 150},
+		{SrcX: 288, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 150},
 	}
 	c.animations["idle"] = sprite.NewAnimation(idleFrames, true)
 
 	// Create walk animation (second row of spritesheet)
 	walkFrames := []sprite.FrameData{
-		{SrcX: 94, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
-		{SrcX: 118, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
-		{SrcX: 142, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
-		{SrcX: 166, SrcY: 0, SrcWidth: 24, SrcHeight: 24, Duration: 100},
+		{SrcX: 384, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
+		{SrcX: 480, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
+		{SrcX: 576, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
+		{SrcX: 672, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
+		{SrcX: 768, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
+		{SrcX: 864, SrcY: 0, SrcWidth: 96, SrcHeight: 96, Duration: 100},
 	}
 	c.animations["walk"] = sprite.NewAnimation(walkFrames, true)
 
@@ -123,28 +130,44 @@ func (c *Controller) SetSpriteSheet(sheet *ebiten.Image) {
 	}
 }
 
+func (c *Controller) SetEyeSpriteSheet(sheet *ebiten.Image) {
+	c.eyeController.SetSpriteSheet(sheet)
+}
+
 func (c *Controller) SetSpriteSheetScale(scale float64) {
 	c.spriteScale = scale
 }
 
-// Update method now handles sprite animation updates
+// Update method now handles sprite animation updates and passes mouse direction to eye controller
 func (c *Controller) Update(targets []common.TargetInfo) {
 	// Calculate delta time for animation updates
 	currentTime := time.Now()
 	deltaTime := currentTime.Sub(c.lastUpdateTime)
 	c.lastUpdateTime = currentTime
 
-	// Update movement and aiming as before
+	// Update movement and aiming
 	c.updateMovement()
 	c.updateAiming(targets)
+
+	// Get aim direction for eye direction
+	aimDirection := c.GetAimDirection()
+
+	// Update eye look direction
+	c.eyeController.UpdateLookDirection(aimDirection)
+
+	// Update eye animations (blink)
+	c.eyeController.Update(deltaTime)
+
+	// Update character animations
+	c.updateAnimation(deltaTime)
 
 	// Update auto-aim state
 	if c.inputManager.JustPressed(common.ActionAutoAttack) {
 		c.autoAim = !c.autoAim
 	}
-
-	// Update animations
-	c.updateAnimation(deltaTime)
+	if c.inputManager.JustPressed(common.ActionUseAbility1) {
+		c.eyeController.TriggerBlink()
+	}
 }
 
 func (c *Controller) updateMovement() {
@@ -165,13 +188,6 @@ func (c *Controller) updateMovement() {
 		// Cap at the scaled max speed
 		if currentSpeed > targetSpeed {
 			c.vel = c.vel.Normalized().Scale(targetSpeed)
-		}
-
-		// Update flip direction based on movement
-		if dx < 0 {
-			c.flipX = true
-		} else if dx > 0 {
-			c.flipX = false
 		}
 	} else {
 		currentSpeed := c.vel.Magnitude()
@@ -196,6 +212,7 @@ func (c *Controller) GetAimVector() (float64, float64) {
 	if dx, dy, ok := c.inputManager.GetGamepadAim(); ok {
 		c.usingGamepad = true
 		c.lastAimDx, c.lastAimDy = dx, dy // Store gamepad aim vector
+
 		return dx, dy
 	}
 
@@ -418,4 +435,62 @@ func (c *Controller) GetAnimationDuration() float32 {
 // GetScale returns the current sprite scale
 func (c *Controller) GetScale() float64 {
 	return c.spriteScale
+}
+
+func (c *Controller) ReverseAnimation() {
+	if c.currentAnim == "walk" {
+		c.animations["walk"].Reverse()
+	}
+}
+
+func (c *Controller) IsReversed() bool {
+	if anim, exists := c.animations[c.currentAnim]; exists {
+		return anim.IsReversed()
+	}
+	return false
+}
+
+func (c *Controller) GetEyeSprite() *ebiten.Image {
+	return c.eyeController.GetSprite()
+}
+
+func (c *Controller) GetEyePosition() common.Vector2 {
+	eyePos := c.eyeController.GetPosition()
+
+	switch c.currentAnim {
+	case "idle":
+		if c.animations["idle"].GetCurrentFrameInt() == 2 {
+			eyePos.Y += 4
+		}
+	case "walk":
+		if c.animations["walk"].GetCurrentFrameInt() == 1 ||
+			c.animations["walk"].GetCurrentFrameInt() == 4 {
+			eyePos.Y += 4
+		}
+	}
+	return eyePos
+}
+
+func (c *Controller) TriggerEyeBlink() {
+	c.eyeController.TriggerBlink()
+}
+
+func (c *Controller) Direction() common.Vector2 {
+	return common.Vector2{X: math.Cos(c.rotation), Y: math.Sin(c.rotation)}
+}
+
+func (c *Controller) DirectionString() string {
+
+	dir := c.Direction()
+
+	if dir.X > 0.5 {
+		return "right"
+	} else if dir.X < -0.5 {
+		return "left"
+	} else if dir.Y > 0.5 {
+		return "down"
+	} else if dir.Y < -0.5 {
+		return "up"
+	}
+	return "idle"
 }
