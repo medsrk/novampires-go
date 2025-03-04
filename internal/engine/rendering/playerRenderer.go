@@ -50,11 +50,6 @@ func (r *Renderer) DrawLayeredPlayerSprite(
 	}
 	baseOp.GeoM.Scale(scaleX, 1.0)
 
-	// Apply rotation if needed
-	//if rotation != 0 {
-	//	baseOp.GeoM.Rotate(rotation)
-	//}
-
 	// Apply scale
 	baseOp.GeoM.Scale(scale, scale)
 
